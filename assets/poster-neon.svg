@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="420" viewBox="0 0 320 420" role="img" aria-labelledby="title desc">
+  <title id="title">Creator loop poster</title>
+  <desc id="desc">A graphic poster with layered loop shapes.</desc>
+  <rect width="320" height="420" fill="#102225"/>
+  <rect x="40" y="52" width="240" height="316" rx="24" fill="#eef3f4"/>
+  <path d="M82 218 C 82 148, 238 148, 238 218 C 238 288, 82 288, 82 218 Z" fill="none" stroke="#00a9a5" stroke-width="18"/>
+  <path d="M112 218 C 112 178, 208 178, 208 218 C 208 258, 112 258, 112 218 Z" fill="none" stroke="#ff3b5c" stroke-width="14"/>
+  <path d="M142 218 C 142 208, 178 208, 178 218 C 178 228, 142 228, 142 218 Z" fill="none" stroke="#172026" stroke-width="10"/>
+  <rect x="72" y="84" width="176" height="22" rx="11" fill="#172026"/>
+  <rect x="106" y="322" width="108" height="18" rx="9" fill="#b26b00"/>
+</svg>
+

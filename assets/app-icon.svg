@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
+  <title id="title">Audio Library app icon</title>
+  <rect width="1024" height="1024" rx="220" fill="#050505"/>
+  <rect x="184" y="210" width="656" height="604" rx="92" fill="#ffffff"/>
+  <g fill="#050505">
+    <rect x="292" y="426" width="48" height="180" rx="24"/>
+    <rect x="382" y="330" width="48" height="372" rx="24"/>
+    <rect x="472" y="392" width="48" height="248" rx="24"/>
+    <rect x="562" y="278" width="48" height="476" rx="24"/>
+    <rect x="652" y="422" width="48" height="188" rx="24"/>
+  </g>
+  <circle cx="328" cy="724" r="38" fill="#ff3b5c"/>
+  <rect x="420" y="690" width="280" height="68" rx="34" fill="#00a9a5"/>
+</svg>

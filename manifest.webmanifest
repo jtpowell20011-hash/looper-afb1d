@@ -1,0 +1,19 @@
+{
+  "name": "Looper",
+  "short_name": "Looper",
+  "description": "Import permitted videos, extract audio locally, auto-trim outros, and save personal loopable audio.",
+  "start_url": "/?v=0.7.0",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#07090f",
+  "theme_color": "#07090f",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "assets/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

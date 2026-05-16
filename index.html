@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#07090f">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Looper">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Looper</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="assets/app-icon.svg">
+    <link rel="stylesheet" href="styles.css?v=0.7.0">
+  </head>
+  <body>
+    <main class="sound-app">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">Personal loop library</p>
+          <h1>Looper</h1>
+        </div>
+        <p id="statusText" class="status-pill" aria-live="polite">Ready</p>
+      </header>
+
+      <nav class="tab-bar" aria-label="Library sections">
+        <button class="is-active" type="button" data-view="sounds">Sounds <span id="soundCount">0</span></button>
+        <button type="button" data-view="liked">Liked <span id="likedCount">0</span></button>
+        <button type="button" data-view="playlists">Playlists <span id="playlistCount">0</span></button>
+        <button type="button" data-view="trending">Trending</button>
+        <button type="button" data-view="top">Top</button>
+      </nav>
+
+      <section class="import-dock" aria-label="Import media">
+        <form id="importForm" class="import-form">
+          <label class="file-picker">
+            <span>Import</span>
+            <input id="audioFile" name="audioFile" type="file" accept="audio/*,video/*,.loopshare,.talshare,application/json" required>
+          </label>
+          <label class="trim-control">
+            <span>Auto trim</span>
+            <input id="trimEndSec" name="trimEndSec" type="number" min="0" step="0.5" value="4">
+            <span>sec</span>
+          </label>
+          <button type="submit">Import</button>
+        </form>
+      </section>
+
+      <section class="tool-panel" aria-label="Library tools">
+        <label class="search-field">
+          <span>Search</span>
+          <input id="searchInput" type="search" placeholder="Search sounds or artists" autocomplete="off">
+        </label>
+        <form id="playlistForm" class="playlist-form">
+          <input id="playlistName" name="playlistName" type="text" placeholder="New playlist" maxlength="32">
+          <button type="submit">Create</button>
+        </form>
+        <label class="playlist-filter">
+          <span>Playlist</span>
+          <select id="playlistFilter"></select>
+        </label>
+      </section>
+
+      <section class="queue-panel" aria-label="Queue controls">
+        <button type="button" data-action="toggle-repeat-sound">Repeat sound</button>
+        <button type="button" data-action="toggle-repeat-playlist">Repeat playlist</button>
+        <button type="button" data-action="toggle-shuffle">Shuffle</button>
+        <span id="queueCount">Queue 0</span>
+      </section>
+
+      <section id="sharePreview" class="share-preview" aria-label="Shared sound preview" hidden>
+        <img id="sharePreviewThumb" alt="">
+        <div class="share-preview-copy">
+          <p class="eyebrow">Shared sound</p>
+          <h2 id="sharePreviewTitle">Preview</h2>
+          <p id="sharePreviewMeta">Listen before saving</p>
+          <div class="share-preview-actions">
+            <button type="button" data-action="preview-play">Listen</button>
+            <select id="sharePlaylistSelect" aria-label="Save to playlist"></select>
+            <button type="button" data-action="save-share">Save</button>
+            <button type="button" data-action="save-share-liked">Like</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="importPreview" class="import-preview" aria-label="Import preview" hidden>
+        <div class="preview-media">
+          <img id="importPreviewThumb" alt="">
+          <canvas id="waveformCanvas" width="900" height="180" aria-label="Audio waveform"></canvas>
+        </div>
+        <div class="preview-copy">
+          <p class="eyebrow">Import preview</p>
+          <h2 id="importPreviewTitle">Preview</h2>
+          <div class="preview-stats">
+            <span>Detected <strong id="originalDuration">00:00</strong></span>
+            <span>Trimmed <strong id="trimmedDuration">00:00</strong></span>
+          </div>
+          <div class="range-stack">
+            <label>
+              Start
+              <input id="trimStartRange" type="range" min="0" max="100" step="0.1" value="0">
+            </label>
+            <label>
+              End
+              <input id="trimEndRange" type="range" min="0" max="100" step="0.1" value="100">
+            </label>
+          </div>
+          <div class="preview-actions">
+            <button type="button" data-action="play-original">Play Original</button>
+            <button type="button" data-action="play-trimmed">Play Trimmed</button>
+            <button type="button" data-action="adjust-trim">Adjust Trim</button>
+            <button type="button" data-action="loop-preview">Loop Preview</button>
+            <button type="button" data-action="save-preview">Save to Library</button>
+            <button type="button" data-action="discard-preview">Discard</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="audioList" class="sound-list" aria-label="Saved sounds"></section>
+
+      <section id="nowPlayingBar" class="now-playing" aria-label="Now playing" hidden>
+        <button class="transport" type="button" data-action="previous-track" aria-label="Previous track">Prev</button>
+        <button class="transport is-main" type="button" data-action="toggle-current" aria-label="Play or pause">Play</button>
+        <button class="transport" type="button" data-action="next-track" aria-label="Next track">Next</button>
+        <div class="now-copy">
+          <strong id="nowTitle">Nothing playing</strong>
+          <span id="nowSubtitle">Looping forever</span>
+        </div>
+      </section>
+
+      <audio id="mainAudio" preload="metadata"></audio>
+      <audio id="previewAudio" preload="metadata"></audio>
+    </main>
+
+    <template id="audioRowTemplate">
+      <article class="sound-row">
+        <button class="thumb-button" type="button" data-action="toggle-row">
+          <img class="thumb-image" alt="">
+          <span class="play-glyph" aria-hidden="true"></span>
+        </button>
+        <div class="sound-copy">
+          <div class="sound-heading">
+            <button class="sound-title-button" type="button" data-action="select-row"></button>
+            <div class="quick-actions">
+              <button class="icon-button" type="button" data-action="toggle-like">Like</button>
+              <button class="icon-button" type="button" data-action="toggle-playlist">List</button>
+              <button class="icon-button" type="button" data-action="share-audio">Share</button>
+              <button class="icon-button" type="button" data-action="queue-next">Next</button>
+              <button class="icon-button" type="button" data-action="select-row">Edit</button>
+            </div>
+          </div>
+          <p class="sound-artist"></p>
+          <p class="sound-duration"></p>
+          <p class="sound-meta"></p>
+          <p class="sound-context"></p>
+          <div class="playlist-badges"></div>
+          <div class="inline-controls" hidden>
+            <label>
+              Name
+              <input data-field="title" type="text">
+            </label>
+            <label>
+              Artist
+              <input data-field="artist" type="text">
+            </label>
+            <label>
+              Creator
+              <input data-field="creator_name" type="text">
+            </label>
+            <label>
+              Source URL
+              <input data-field="source_url" type="url">
+            </label>
+            <label>
+              Tags
+              <input data-field="tagsText" type="text" placeholder="gym, night drive">
+            </label>
+            <label>
+              Notes
+              <input data-field="notes" type="text" placeholder="Good loop starts at 0:11">
+            </label>
+            <label>
+              Loop start
+              <input data-field="loopStartSec" type="number" min="0" step="0.1">
+            </label>
+            <label>
+              Loop end
+              <input data-field="loopEndSec" type="number" min="0" step="0.1">
+            </label>
+            <label>
+              Mode
+              <select data-field="loopLimitMode">
+                <option value="forever">Forever</option>
+                <option value="timed">Timed</option>
+              </select>
+            </label>
+            <label>
+              Stop after min
+              <input data-field="loopStopAfterMinutes" type="number" min="0" step="0.25">
+            </label>
+            <div class="inline-actions">
+              <button type="button" data-action="toggle-like">Like</button>
+              <button type="button" data-action="toggle-playlist">Playlist</button>
+              <button type="button" data-action="queue-next">Play next</button>
+              <button type="button" data-action="add-queue">Add queue</button>
+              <button type="button" data-action="share-audio">Share</button>
+              <button type="button" data-action="delete-audio">Delete</button>
+            </div>
+          </div>
+        </div>
+      </article>
+    </template>
+
+    <script src="src/domain.js?v=0.7.0" defer></script>
+    <script src="src/app.js?v=0.7.0" defer></script>
+  </body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "looper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal loopable audio library for locally imported videos and audio.",
+  "scripts": {
+    "build:pwa": "node scripts/build-pwa.mjs",
+    "build:pwa:windows": "powershell -ExecutionPolicy Bypass -File scripts/build-pwa.ps1",
+    "start": "node server.js",
+    "test": "node test/domain.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

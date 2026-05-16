@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="420" viewBox="0 0 320 420" role="img" aria-labelledby="title desc">
+  <title id="title">City sound poster</title>
+  <desc id="desc">A graphic poster with city blocks and a bright sound wave.</desc>
+  <rect width="320" height="420" fill="#172026"/>
+  <rect x="24" y="50" width="76" height="280" rx="5" fill="#26343b"/>
+  <rect x="124" y="96" width="72" height="234" rx="5" fill="#314148"/>
+  <rect x="220" y="34" width="64" height="296" rx="5" fill="#233037"/>
+  <g fill="#f6f8f9" opacity=".86">
+    <rect x="43" y="76" width="16" height="28" rx="2"/>
+    <rect x="70" y="76" width="16" height="28" rx="2"/>
+    <rect x="143" y="124" width="16" height="28" rx="2"/>
+    <rect x="170" y="124" width="16" height="28" rx="2"/>
+    <rect x="238" y="66" width="16" height="28" rx="2"/>
+    <rect x="264" y="66" width="8" height="28" rx="2"/>
+  </g>
+  <path d="M26 356 C 78 314, 112 406, 164 356 S 252 306, 294 356" fill="none" stroke="#ff3b5c" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="164" cy="356" r="16" fill="#00a9a5"/>
+</svg>
+
