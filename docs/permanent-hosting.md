@@ -12,6 +12,15 @@ Use this stack for the PWA phase:
 
 This gives Looper a permanent HTTPS URL, deploy logs, rollback history, preview deploys for branches, and automatic production updates whenever the main branch changes.
 
+## Current Production Setup
+
+- Live site: `https://zippy-elf-91ab66.netlify.app`
+- Netlify project: `zippy-elf-91ab66`
+- Netlify-connected GitHub repo: `jtpowell20011-hash/looper-afb1d`
+- Original template/source repo: `jtpowell20011-hash/looper`
+
+This local folder now tracks the Netlify-connected repo as `origin`, so a normal push to `main` updates the live site.
+
 ## Netlify Settings
 
 This repo includes `netlify.toml`, so Netlify should pick up:
@@ -32,7 +41,7 @@ If Netlify asks manually, use those same values.
 6. Confirm the build command is `npm run build:pwa`.
 7. Confirm the publish directory is `dist`.
 8. Deploy.
-9. Rename the generated site to something stable, such as `looper-audio` if available.
+9. Optionally rename the generated site to something stable, such as `looper-audio` if available.
 
 The app URL will look like:
 
