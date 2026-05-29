@@ -189,7 +189,14 @@ export const CONFIG = Object.freeze({
   },
   multiplayer: {
     maxSyncedMobs: 360,
-    maxSyncedDeployables: 24
+    maxSyncedDeployables: 24,
+    // How often the host streams the world (mobs/boss) to other players. Lower
+    // cadence + client-side interpolation keeps movement smooth without flooding
+    // the relay (which also starved player-position updates).
+    worldSyncIntervalMs: 200,
+    // Only stream mobs within this range of any player so far-field mobs do not
+    // bloat the snapshot. Tuned a bit beyond a screen so they ease in cleanly.
+    syncMobRadius: 1700
   },
   recall: {
     duration: 8,

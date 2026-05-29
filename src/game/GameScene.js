@@ -1,19 +1,19 @@
 // @ts-check
-import { BaseController } from "./Base.js?v=1.8.58";
-import { AIPlayerController } from "./AIPlayer.js?v=1.8.58";
-import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.58";
-import { CONFIG } from "./config.js?v=1.8.58";
-import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.58";
-import { GameMap } from "./Map.js?v=1.8.58";
-import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.58";
-import { MatchManager } from "./MatchManager.js?v=1.8.58";
-import { Mob } from "./Mob.js?v=1.8.58";
-import { createObjectives } from "./Objective.js?v=1.8.58";
-import { Player } from "./Player.js?v=1.8.58";
-import { RewardSystem } from "./RewardSystem.js?v=1.8.58";
-import { UIManager } from "./UIManager.js?v=1.8.58";
-import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.58";
-import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.58";
+import { BaseController } from "./Base.js?v=1.8.59";
+import { AIPlayerController } from "./AIPlayer.js?v=1.8.59";
+import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.59";
+import { CONFIG } from "./config.js?v=1.8.59";
+import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.59";
+import { GameMap } from "./Map.js?v=1.8.59";
+import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.59";
+import { MatchManager } from "./MatchManager.js?v=1.8.59";
+import { Mob } from "./Mob.js?v=1.8.59";
+import { createObjectives } from "./Objective.js?v=1.8.59";
+import { Player } from "./Player.js?v=1.8.59";
+import { RewardSystem } from "./RewardSystem.js?v=1.8.59";
+import { UIManager } from "./UIManager.js?v=1.8.59";
+import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.59";
+import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.59";
 
 export class GameScene {
   constructor(canvas, options = {}) {
@@ -1297,7 +1297,42 @@ export class GameScene {
       return;
     }
     this.interpolateRemotePlayers(dt);
+    if (!this.isAuthoritativeWorldHost()) {
+      this.interpolateRemoteMobs(dt);
+    }
     this.multiplayer.tick(this, dt);
+  }
+
+  // Host streams mobs at a throttled cadence; gate inclusion so the heavy world
+  // payload doesn't flood every ~10Hz player-state send.
+  shouldSyncWorldNow() {
+    if (!this.isAuthoritativeWorldHost()) {
+      return false;
+    }
+    const interval = CONFIG.multiplayer?.worldSyncIntervalMs ?? 200;
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    if (now - (this.lastWorldSyncAt || 0) < interval) {
+      return false;
+    }
+    this.lastWorldSyncAt = now;
+    return true;
+  }
+
+  // Non-host clients receive mob positions at the world cadence; ease toward
+  // them each frame (and derive facing) so mobs/bosses move smoothly.
+  interpolateRemoteMobs(dt) {
+    const k = Math.min(1, dt * 12);
+    for (const mob of this.mobs) {
+      if (!mob.alive || !Number.isFinite(mob.targetX) || !Number.isFinite(mob.targetY)) {
+        continue;
+      }
+      const dx = mob.targetX - mob.x;
+      const dy = mob.targetY - mob.y;
+      mob.vx = dx;
+      mob.vy = dy;
+      mob.x += dx * k;
+      mob.y += dy * k;
+    }
   }
 
   // Smoothly ease each remote proxy toward its last networked position so
@@ -1411,7 +1446,7 @@ export class GameScene {
         timeRemaining: Math.ceil(this.match.timeRemaining)
       },
       deployables: this.createDeployableSnapshot(),
-      world: this.isAuthoritativeWorldHost() ? this.createWorldSnapshot() : null
+      world: this.shouldSyncWorldNow() ? this.createWorldSnapshot() : null
     };
   }
 
@@ -1438,6 +1473,26 @@ export class GameScene {
 
   createWorldSnapshot() {
     const maxMobs = CONFIG.multiplayer?.maxSyncedMobs || 360;
+    const radius = CONFIG.multiplayer?.syncMobRadius || 1700;
+    const radiusSq = radius * radius;
+    // Stream mobs near ANY player (host + remotes) so each client gets its own
+    // nearby mobs; bosses always sync. Sort by proximity so the cap keeps the
+    // most relevant ones.
+    const anchors = [this.player, ...this.remotePlayers.values()].filter(
+      (point) => point && Number.isFinite(point.x) && Number.isFinite(point.y)
+    );
+    const nearestDistSq = (mob) => {
+      let best = Infinity;
+      for (const anchor of anchors) {
+        const dx = anchor.x - mob.x;
+        const dy = anchor.y - mob.y;
+        const distSq = dx * dx + dy * dy;
+        if (distSq < best) {
+          best = distSq;
+        }
+      }
+      return best;
+    };
     return {
       hostId: this.player.id,
       worldSeed: this.worldSeed,
@@ -1447,8 +1502,11 @@ export class GameScene {
       openedChests: (this.explorationChests || []).filter((chest) => chest.opened).map((chest) => chest.id),
       mobs: this.mobs
         .filter((mob) => mob.alive && !mob.rewardsGranted)
+        .map((mob) => ({ mob, sortKey: mob.isBoss ? -1 : nearestDistSq(mob) }))
+        .filter((entry) => entry.mob.isBoss || entry.sortKey <= radiusSq)
+        .sort((a, b) => a.sortKey - b.sortKey)
         .slice(0, maxMobs)
-        .map((mob) => ({
+        .map(({ mob }) => ({
           id: mob.id,
           x: Math.round(mob.x),
           y: Math.round(mob.y),
@@ -1608,8 +1666,16 @@ export class GameScene {
       }
       mob.isRemoteMob = true;
       mob.remoteOwnerId = this.worldHostId || hostId;
-      mob.x = Number.isFinite(snapshot.x) ? snapshot.x : mob.x;
-      mob.y = Number.isFinite(snapshot.y) ? snapshot.y : mob.y;
+      const snapX = Number.isFinite(snapshot.x) ? snapshot.x : mob.x;
+      const snapY = Number.isFinite(snapshot.y) ? snapshot.y : mob.y;
+      // Interpolate toward the host's position instead of teleporting. Snap only
+      // for brand-new mobs or teleport-sized jumps (spawns/respawns).
+      if (!Number.isFinite(mob.targetX) || Math.hypot(snapX - mob.x, snapY - mob.y) > 700) {
+        mob.x = snapX;
+        mob.y = snapY;
+      }
+      mob.targetX = snapX;
+      mob.targetY = snapY;
       mob.spawnX = Number.isFinite(snapshot.spawnX) ? snapshot.spawnX : mob.spawnX;
       mob.spawnY = Number.isFinite(snapshot.spawnY) ? snapshot.spawnY : mob.spawnY;
       mob.tier = snapshot.tier || mob.tier || 1;
