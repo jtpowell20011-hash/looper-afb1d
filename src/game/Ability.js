@@ -1,7 +1,7 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.53";
-import { getCharacterClass } from "./CharacterClasses.js?v=1.8.53";
-import { clamp, normalize } from "./math.js?v=1.8.53";
+import { CONFIG } from "./config.js?v=1.8.54";
+import { getCharacterClass } from "./CharacterClasses.js?v=1.8.54";
+import { clamp, normalize } from "./math.js?v=1.8.54";
 
 export class Ability {
   constructor(config) {

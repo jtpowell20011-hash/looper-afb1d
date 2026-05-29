@@ -1,8 +1,8 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.53";
-import { Entity } from "./Entity.js?v=1.8.53";
-import { clamp, distance, normalize, randRange } from "./math.js?v=1.8.53";
-import { DamageTracker } from "./RewardSystem.js?v=1.8.53";
+import { CONFIG } from "./config.js?v=1.8.54";
+import { Entity } from "./Entity.js?v=1.8.54";
+import { clamp, distance, normalize, randRange } from "./math.js?v=1.8.54";
+import { DamageTracker } from "./RewardSystem.js?v=1.8.54";
 
 export class Mob extends Entity {
   constructor({
@@ -135,6 +135,11 @@ export class Mob extends Entity {
     for (const ai of scene.aiPlayers || []) {
       if (scene.canTargetEntity?.(ai.player, "mob") && canAggro(ai.player)) {
         candidates.push(ai.player);
+      }
+    }
+    for (const remote of scene.remotePlayers?.values?.() || []) {
+      if (scene.canTargetEntity?.(remote, "mob") && canAggro(remote)) {
+        candidates.push(remote);
       }
     }
     for (const defender of scene.baseDefenders || []) {

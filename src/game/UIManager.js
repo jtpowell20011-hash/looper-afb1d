@@ -1,7 +1,7 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.53";
-import { labelForKeyCode } from "./InputBindings.js?v=1.8.53";
-import { formatTime } from "./math.js?v=1.8.53";
+import { CONFIG } from "./config.js?v=1.8.54";
+import { labelForKeyCode } from "./InputBindings.js?v=1.8.54";
+import { formatTime } from "./math.js?v=1.8.54";
 
 export class UIManager {
   constructor(callbacks) {
@@ -125,8 +125,11 @@ export class UIManager {
       messageEyebrow: byId("messageEyebrow"),
       messageTitle: byId("messageTitle"),
       messageBody: byId("messageBody"),
+      overlaySpectateButton: byId("overlaySpectateButton"),
       overlayResetButton: byId("overlayResetButton")
     };
+    this.messagePrimaryAction = "reset";
+    this.messageSecondaryAction = "hide";
     this.tabButtons = Array.from(document.querySelectorAll("[data-drawer-tab]"));
     this.pages = Array.from(document.querySelectorAll(".drawer-page"));
     this.bind();
@@ -205,7 +208,20 @@ export class UIManager {
     this.els.debugMobButton.addEventListener("click", this.callbacks.spawnMobs);
     this.els.debugPhaseButton.addEventListener("click", this.callbacks.advancePhase);
     this.els.resetButton.addEventListener("click", this.callbacks.reset);
-    this.els.overlayResetButton.addEventListener("click", this.callbacks.reset);
+    this.els.overlayResetButton.addEventListener("click", () => {
+      if (this.messagePrimaryAction === "leave") {
+        this.callbacks.leaveMatch?.();
+      } else {
+        this.callbacks.reset();
+      }
+    });
+    this.els.overlaySpectateButton.addEventListener("click", () => {
+      if (this.messageSecondaryAction === "leave") {
+        this.callbacks.leaveMatch?.();
+      } else {
+        this.hideMessage();
+      }
+    });
 
     this.els.inventoryList.addEventListener("click", (event) => {
       const equipTarget = event.target.closest("[data-equip-id]");
@@ -875,10 +891,15 @@ export class UIManager {
     );
   }
 
-  showMessage(eyebrow, title, body) {
+  showMessage(eyebrow, title, body, options = {}) {
     this.els.messageEyebrow.textContent = eyebrow;
     this.els.messageTitle.textContent = title;
     this.els.messageBody.textContent = body;
+    this.messagePrimaryAction = options.primaryAction || "reset";
+    this.messageSecondaryAction = options.secondaryAction || "hide";
+    this.els.overlayResetButton.textContent = options.primaryLabel || "Restart Match";
+    this.els.overlaySpectateButton.textContent = options.secondaryLabel || "Spectate";
+    this.els.overlaySpectateButton.hidden = !options.secondaryLabel;
     this.els.messageOverlay.hidden = false;
   }
 

@@ -1,5 +1,5 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.53";
+import { CONFIG } from "./config.js?v=1.8.54";
 export class DamageTracker {
   constructor() {
     this.contributions = new Map();
@@ -125,6 +125,21 @@ export class RewardSystem {
     player.addXP(reward.xp);
     player.currency += reward.gold;
     player.resources += reward.resources;
+    return reward;
+  }
+
+  grantSyncedMobReward(player, event = {}) {
+    const reward = {
+      xp: Math.max(0, Math.round(Number(event.rewardXP || 0))),
+      gold: Math.max(0, Math.round(Number(event.rewardGold || 0))),
+      resources: Math.max(0, Math.round(Number(event.rewardResources || 0)))
+    };
+    player.addXP(reward.xp);
+    player.currency += reward.gold;
+    player.resources += reward.resources;
+    if (event.bossBuff) {
+      player.applyBossBuff?.();
+    }
     return reward;
   }
 

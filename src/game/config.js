@@ -181,6 +181,9 @@ export const CONFIG = Object.freeze({
     debugKey: "F9",
     hudUpdateHz: 10
   },
+  multiplayer: {
+    maxSyncedMobs: 360
+  },
   recall: {
     duration: 8,
     cancelOnMove: true,

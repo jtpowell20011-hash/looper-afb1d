@@ -16,6 +16,7 @@ const PLAYER_STALE_MS = 1000 * 35;
 const MAX_PLAYERS = Math.max(2, Math.min(8, Number(process.env.MAX_PLAYERS || 8)));
 const MAX_ROOM_EVENTS = 240;
 const MAX_EVENT_DAMAGE = 1200;
+const MAX_BODY_BYTES = Math.max(250_000, Math.min(2_000_000, Number(process.env.MAX_BODY_BYTES || 750_000)));
 // Shared countdown so every client unfreezes the match at the same moment.
 const START_COUNTDOWN_MS = 5000;
 
@@ -45,7 +46,7 @@ function readJson(req) {
     let body = "";
     req.on("data", (chunk) => {
       body += chunk;
-      if (body.length > 100_000) {
+      if (body.length > MAX_BODY_BYTES) {
         reject(new Error("payload_too_large"));
         req.destroy();
       }
@@ -195,7 +196,7 @@ function appendRoomEvents(room, events = [], player = {}) {
 
 function sanitizeCombatEvent(rawEvent = {}, player = {}) {
   const type = String(rawEvent.type || "");
-  if (!["damage", "projectile", "area", "playerDefeated", "playerEliminated", "coreDestroyed"].includes(type)) {
+  if (!["damage", "projectile", "area", "mobDefeated", "playerDefeated", "playerEliminated", "coreDestroyed"].includes(type)) {
     return null;
   }
   const id = String(rawEvent.id || `${player.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
@@ -256,10 +257,30 @@ function sanitizeCombatEvent(rawEvent = {}, player = {}) {
       targetKind: String(rawEvent.targetKind || "player").slice(0, 24),
       targetType: String(rawEvent.targetType || "").slice(0, 32),
       amount,
-      sourceKind: "remotePlayer",
+      sourceKind: sanitizeSourceKind(rawEvent.sourceKind),
       sourceX: Math.round(Number(rawEvent.sourceX || 0)),
       sourceY: Math.round(Number(rawEvent.sourceY || 0)),
       status: sanitizeStatus(rawEvent.status)
+    };
+  }
+  if (type === "mobDefeated") {
+    const killerId = String(rawEvent.killerId || "").slice(0, 80);
+    if (!killerId) {
+      return null;
+    }
+    return {
+      ...base,
+      targetOwnerId: String(rawEvent.targetOwnerId || player.id || "").slice(0, 80),
+      targetId,
+      killerId,
+      killerName: String(rawEvent.killerName || "Player").slice(0, 28),
+      mobName: String(rawEvent.mobName || "Mob").slice(0, 40),
+      mobTier: Math.max(1, Math.min(10, Math.round(Number(rawEvent.mobTier || 1)))),
+      mobLevel: Math.max(1, Math.min(99, Math.round(Number(rawEvent.mobLevel || 1)))),
+      bossBuff: Boolean(rawEvent.bossBuff),
+      rewardGold: Math.max(0, Math.min(10000, Math.round(Number(rawEvent.rewardGold || 0)))),
+      rewardResources: Math.max(0, Math.min(10000, Math.round(Number(rawEvent.rewardResources || 0)))),
+      rewardXP: Math.max(0, Math.min(10000, Math.round(Number(rawEvent.rewardXP || 0))))
     };
   }
   const victimId = String(rawEvent.victimId || targetOwnerId || "").slice(0, 80);
@@ -293,6 +314,13 @@ function sanitizeStatus(status = null) {
     }
   }
   return Object.keys(clean).length > 0 ? clean : null;
+}
+
+function sanitizeSourceKind(kind = "remotePlayer") {
+  const value = String(kind || "remotePlayer");
+  return ["player", "remotePlayer", "tower", "mob", "hostile", "objective", "neutralTower"].includes(value)
+    ? value
+    : "remotePlayer";
 }
 
 function sanitizeRoomSettings(settings = {}) {

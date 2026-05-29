@@ -1,19 +1,19 @@
 // @ts-check
-import { BaseController } from "./Base.js?v=1.8.53";
-import { AIPlayerController } from "./AIPlayer.js?v=1.8.53";
-import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.53";
-import { CONFIG } from "./config.js?v=1.8.53";
-import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.53";
-import { GameMap } from "./Map.js?v=1.8.53";
-import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.53";
-import { MatchManager } from "./MatchManager.js?v=1.8.53";
-import { Mob } from "./Mob.js?v=1.8.53";
-import { createObjectives } from "./Objective.js?v=1.8.53";
-import { Player } from "./Player.js?v=1.8.53";
-import { RewardSystem } from "./RewardSystem.js?v=1.8.53";
-import { UIManager } from "./UIManager.js?v=1.8.53";
-import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.53";
-import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.53";
+import { BaseController } from "./Base.js?v=1.8.54";
+import { AIPlayerController } from "./AIPlayer.js?v=1.8.54";
+import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.54";
+import { CONFIG } from "./config.js?v=1.8.54";
+import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.54";
+import { GameMap } from "./Map.js?v=1.8.54";
+import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.54";
+import { MatchManager } from "./MatchManager.js?v=1.8.54";
+import { Mob } from "./Mob.js?v=1.8.54";
+import { createObjectives } from "./Objective.js?v=1.8.54";
+import { Player } from "./Player.js?v=1.8.54";
+import { RewardSystem } from "./RewardSystem.js?v=1.8.54";
+import { UIManager } from "./UIManager.js?v=1.8.54";
+import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.54";
+import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.54";
 
 export class GameScene {
   constructor(canvas, options = {}) {
@@ -55,6 +55,7 @@ export class GameScene {
     this.playerName = options.playerName || "Basebound Scout";
     this.roomCode = options.roomCode || null;
     this.worldSeed = options.worldSeed || null;
+    this.onLeaveMatch = typeof options.onLeaveMatch === "function" ? options.onLeaveMatch : null;
     // Server-clock timestamp at which all clients begin the match together (0 = no sync gate).
     this.matchStartAt = Number.isFinite(options.startAt) ? options.startAt : 0;
     this.remotePlayers = new Map();
@@ -92,6 +93,7 @@ export class GameScene {
       basicAttack: () => this.handlePrimaryAttackInput(),
       toggleAbility: (id) => this.toggleAbilityPreview(id),
       setBaseLayout: (layoutId) => this.setBaseLayout(layoutId),
+      leaveMatch: () => this.leaveMatch(),
       reset: () => this.reset()
     });
 
@@ -145,6 +147,7 @@ export class GameScene {
     this.player = new Player(this.spawnPoint.x, this.spawnPoint.y, this.selectedCharacterId);
     this.player.id = this.multiplayer?.playerId || "player-local";
     this.player.displayName = this.playerName;
+    this.worldHostId = this.multiplayer?.lastRoom?.hostId || (this.isHost ? this.player.id : null);
     this.aiPlayers = this.createAIPlayers();
     this.createFogOfWar();
     this.mobs = [];
@@ -168,6 +171,9 @@ export class GameScene {
     this.selectedTarget = null;
     this.autoAttackToastTimer = 0;
     this.targetPanelDirty = true;
+    this.spectating = false;
+    this.spectatorFocusId = null;
+    this.sceneStartedAt = Date.now();
     this.appliedRemoteCombatEventIds = new Set();
     this.appliedRemoteCombatEventOrder = [];
     this.sentPvPOutcomeEvents = new Set();
@@ -191,10 +197,12 @@ export class GameScene {
       collisionChecks: 0,
       uiHz: CONFIG.performance?.hudUpdateHz || 10
     };
-    this.campStates = this.campDefinitions.map((camp) => ({
-      ...camp,
-      timer: randRange(1, CONFIG.mobs.baseSpawnInterval)
-    }));
+    this.campStates = withSeededRandom(`${this.worldSeed || "local"}-camp-timers`, () =>
+      this.campDefinitions.map((camp) => ({
+        ...camp,
+        timer: randRange(1, CONFIG.mobs.baseSpawnInterval)
+      }))
+    );
     this.campSpawnAccumulator = 0;
     this.waveTimer = CONFIG.mobs.waveInterval;
     this.objectiveIncomeTimer = 0;
@@ -211,7 +219,9 @@ export class GameScene {
     if (this.roomCode) {
       this.addToast(`Room ${this.roomCode}: ${this.isHost ? "host" : "joined"} sync active.`);
     }
-    this.spawnOpeningCamps();
+    if (this.isAuthoritativeWorldHost()) {
+      this.spawnOpeningCamps();
+    }
     this.updateFogOfWar();
   }
 
@@ -955,6 +965,9 @@ export class GameScene {
     if ((this.neutralTowers || []).includes(target)) {
       return this.canDamageNeutralTower(target, { sourceOwnerId: this.player.id, sourceKind: "player" });
     }
+    if (target?.isRemoteMob) {
+      return this.mobs.includes(target);
+    }
     if (target?.isRemotePlayer || target?.isRemoteBuilding) {
       const stillPresent = target.isRemotePlayer
         ? this.remotePlayers?.has?.(target.id)
@@ -1112,6 +1125,11 @@ export class GameScene {
       return;
     }
 
+    if (this.spectating) {
+      this.updateSpectator(dt);
+      return;
+    }
+
     const matchEvent = this.match.update(dt);
     if (matchEvent === "phase_changed") {
       this.phaseWarningIndex = null;
@@ -1131,7 +1149,9 @@ export class GameScene {
     }
 
     this.player.tickConsumables(dt);
-    this.updateMidBossSpawn();
+    if (this.isAuthoritativeWorldHost()) {
+      this.updateMidBossSpawn();
+    }
 
     if (this.recall.active) {
       this.player.abilityBook.update(dt);
@@ -1148,20 +1168,26 @@ export class GameScene {
     this.updateHomeRegeneration(dt);
     this.updateMultiplayer(dt);
     this.tryRespawn();
-    this.updateExplorationChests(dt);
-    this.updateRoamingEncounters();
-    this.updateVillages(dt);
-    this.updateCampSpawns(dt);
-    this.updateBaseWaves(dt);
+    if (this.isAuthoritativeWorldHost()) {
+      this.updateExplorationChests(dt);
+      this.updateRoamingEncounters();
+      this.updateVillages(dt);
+      this.updateCampSpawns(dt);
+      this.updateBaseWaves(dt);
+    }
     this.updateProjectiles(dt);
     this.updateDelayedAreaEffects(dt);
     this.updateAreaEffects(dt);
     this.updateStatusDots(dt);
-    this.updateBossScaling();
+    if (this.isAuthoritativeWorldHost()) {
+      this.updateBossScaling();
+    }
     this.updateNeutralTowers(dt);
 
-    for (const mob of this.mobs) {
-      mob.update(dt, this);
+    if (this.isAuthoritativeWorldHost()) {
+      for (const mob of this.mobs) {
+        mob.update(dt, this);
+      }
     }
 
     this.base.update(dt, this);
@@ -1173,6 +1199,20 @@ export class GameScene {
 
     this.updateObjectiveIncome(dt);
     this.checkObjectiveControlWin();
+    this.updateFogOfWar();
+    this.cleanupDeadEntities();
+  }
+
+  isAuthoritativeWorldHost() {
+    return !this.multiplayer || this.isHost;
+  }
+
+  updateSpectator(dt) {
+    this.updateMultiplayer(dt);
+    this.updateProjectiles(dt);
+    this.updateDelayedAreaEffects(dt);
+    this.updateAreaEffects(dt);
+    this.updateBaseEffects(dt);
     this.updateFogOfWar();
     this.cleanupDeadEntities();
   }
@@ -1311,6 +1351,8 @@ export class GameScene {
         maxHealth: this.player.effectiveMaxHealth,
         healthRatio: this.player.healthRatio,
         alive: this.player.alive,
+        eliminated: Boolean(this.player.eliminated),
+        spectating: Boolean(this.spectating),
         respawnTimer: this.player.respawnTimer,
         radius: this.player.radius,
         fx: this.player.facing ? Math.round((this.player.facing.x || 0) * 100) / 100 : 0,
@@ -1338,7 +1380,40 @@ export class GameScene {
       match: {
         phaseIndex: this.match.phaseIndex,
         timeRemaining: Math.ceil(this.match.timeRemaining)
-      }
+      },
+      world: this.isAuthoritativeWorldHost() ? this.createWorldSnapshot() : null
+    };
+  }
+
+  createWorldSnapshot() {
+    const maxMobs = CONFIG.multiplayer?.maxSyncedMobs || 360;
+    return {
+      hostId: this.player.id,
+      worldSeed: this.worldSeed,
+      mapSize: this.mapSizeId,
+      bossSpawned: Boolean(this.bossSpawned),
+      bossDefeated: Boolean(this.bossDefeated),
+      mobs: this.mobs
+        .filter((mob) => mob.alive && !mob.rewardsGranted)
+        .slice(0, maxMobs)
+        .map((mob) => ({
+          id: mob.id,
+          x: Math.round(mob.x),
+          y: Math.round(mob.y),
+          spawnX: Math.round(mob.spawnX || mob.x),
+          spawnY: Math.round(mob.spawnY || mob.y),
+          tier: mob.tier || 1,
+          campId: mob.campId || "wild",
+          campType: mob.campType || "goblin",
+          archetype: mob.archetype || "melee",
+          isBoss: Boolean(mob.isBoss),
+          targetBase: Boolean(mob.targetBase),
+          health: Math.ceil(mob.health),
+          maxHealth: Math.ceil(mob.maxHealth),
+          radius: mob.radius || 20,
+          scaledLevel: mob.scaledLevel || 1,
+          arenaBounds: mob.arenaBounds || null
+        }))
     };
   }
 
@@ -1348,6 +1423,12 @@ export class GameScene {
     for (const remote of remotePlayers) {
       const snap = remote.state?.player || {};
       seen.add(remote.id);
+      if (remote.isHost || remote.id === this.multiplayer?.lastRoom?.hostId) {
+        this.worldHostId = remote.id;
+        if (!this.isAuthoritativeWorldHost() && remote.state?.world) {
+          this.applyHostWorldSnapshot(remote.state.world, remote.id);
+        }
+      }
       // Reuse the existing proxy so interpolation state (x/y) survives updates.
       let proxy = this.remotePlayers.get(remote.id);
       if (!proxy) {
@@ -1368,6 +1449,8 @@ export class GameScene {
       proxy.characterLabel = snap.characterLabel || proxy.characterLabel;
       proxy.level = snap.level ?? proxy.level ?? 1;
       proxy.alive = snap.alive !== false;
+      proxy.eliminated = Boolean(snap.eliminated);
+      proxy.spectating = Boolean(snap.spectating);
       proxy.health = snap.health;
       proxy.maxHealth = snap.maxHealth;
       proxy.healthRatio = snap.healthRatio ?? 1;
@@ -1416,12 +1499,83 @@ export class GameScene {
     this.remoteBases = nextBases;
   }
 
+  applyHostWorldSnapshot(world, hostId) {
+    if (!world || this.isAuthoritativeWorldHost()) {
+      return;
+    }
+    this.worldHostId = world.hostId || hostId || this.worldHostId;
+    if (world.mapSize && CONFIG.mapSizes?.[world.mapSize] && world.mapSize !== this.mapSizeId) {
+      this.mapSizeId = world.mapSize;
+      this.applyMapSizeConfig(this.mapSizeId);
+    }
+    if (world.worldSeed && world.worldSeed !== this.worldSeed) {
+      this.worldSeed = world.worldSeed;
+      this.createSharedWorldState();
+      this.campStates = withSeededRandom(`${this.worldSeed || "remote"}-camp-timers`, () =>
+        this.campDefinitions.map((camp) => ({
+          ...camp,
+          timer: randRange(1, CONFIG.mobs.baseSpawnInterval)
+        }))
+      );
+      this.updateFogOfWar();
+    }
+    this.bossSpawned = Boolean(world.bossSpawned);
+    this.bossDefeated = Boolean(world.bossDefeated);
+    const existing = new Map((this.mobs || []).map((mob) => [mob.id, mob]));
+    const nextMobs = [];
+    for (const snapshot of world.mobs || []) {
+      if (!snapshot?.id) {
+        continue;
+      }
+      let mob = existing.get(snapshot.id);
+      if (!mob) {
+        mob = new Mob({
+          x: snapshot.x,
+          y: snapshot.y,
+          tier: snapshot.tier || 1,
+          campId: snapshot.campId || "remote",
+          isBoss: Boolean(snapshot.isBoss),
+          targetBase: Boolean(snapshot.targetBase),
+          archetype: snapshot.archetype || "melee",
+          campType: snapshot.campType || "goblin",
+          arenaBounds: snapshot.arenaBounds || null
+        });
+        mob.id = snapshot.id;
+      }
+      mob.isRemoteMob = true;
+      mob.remoteOwnerId = this.worldHostId || hostId;
+      mob.x = Number.isFinite(snapshot.x) ? snapshot.x : mob.x;
+      mob.y = Number.isFinite(snapshot.y) ? snapshot.y : mob.y;
+      mob.spawnX = Number.isFinite(snapshot.spawnX) ? snapshot.spawnX : mob.spawnX;
+      mob.spawnY = Number.isFinite(snapshot.spawnY) ? snapshot.spawnY : mob.spawnY;
+      mob.tier = snapshot.tier || mob.tier || 1;
+      mob.campId = snapshot.campId || mob.campId;
+      mob.campType = snapshot.campType || mob.campType;
+      mob.archetype = snapshot.archetype || mob.archetype;
+      mob.isBoss = Boolean(snapshot.isBoss);
+      mob.targetBase = Boolean(snapshot.targetBase);
+      mob.radius = snapshot.radius || mob.radius;
+      mob.maxHealth = Math.max(1, snapshot.maxHealth || mob.maxHealth || 1);
+      mob.health = Math.max(0, Math.min(mob.maxHealth, snapshot.health ?? mob.health));
+      mob.alive = mob.health > 0;
+      mob.scaledLevel = snapshot.scaledLevel || mob.scaledLevel || 1;
+      mob.arenaBounds = snapshot.arenaBounds || mob.arenaBounds || null;
+      mob.rewardsGranted = false;
+      nextMobs.push(mob);
+    }
+    this.mobs = nextMobs;
+  }
+
   getRemoteBaseBuildings() {
     return Array.from(this.remoteBases.values()).flatMap((remoteBase) => remoteBase.buildings || []).filter((building) => building.alive !== false);
   }
 
+  isRemoteMobTarget(target) {
+    return Boolean(this.multiplayer && target?.isRemoteMob);
+  }
+
   isRemoteCombatTarget(target) {
-    return Boolean(this.multiplayer && target && (target.isRemotePlayer || target.isRemoteBuilding));
+    return Boolean(this.multiplayer && target && (target.isRemotePlayer || target.isRemoteBuilding || target.isRemoteMob));
   }
 
   emitRemoteDamageIntent(target, amount, source = {}) {
@@ -1429,10 +1583,11 @@ export class GameScene {
       return false;
     }
     const sourceOwnerId = source.sourceOwnerId || source.sourceId || this.player.id;
-    if (sourceOwnerId !== this.player.id) {
+    const hostWorldSource = this.isAuthoritativeWorldHost() && ["mob", "hostile", "objective", "neutralTower"].includes(source.sourceKind);
+    if (sourceOwnerId !== this.player.id && !hostWorldSource) {
       return false;
     }
-    const targetOwnerId = target.isRemotePlayer ? target.id : target.ownerId;
+    const targetOwnerId = target.isRemoteMob ? this.getWorldHostPlayerId() : target.isRemotePlayer ? target.id : target.ownerId;
     if (!targetOwnerId || targetOwnerId === this.player.id) {
       return false;
     }
@@ -1440,10 +1595,10 @@ export class GameScene {
       type: "damage",
       targetOwnerId,
       targetId: target.id,
-      targetKind: target.isRemotePlayer ? "player" : "building",
+      targetKind: target.isRemoteMob ? "mob" : target.isRemotePlayer ? "player" : "building",
       targetType: target.type || "player",
       amount: Math.max(1, Math.round(amount)),
-      sourceKind: "player",
+      sourceKind: source.sourceKind || "player",
       sourceX: Number.isFinite(source.sourceX) ? source.sourceX : this.player.x,
       sourceY: Number.isFinite(source.sourceY) ? source.sourceY : this.player.y,
       status: source.status || null
@@ -1452,6 +1607,10 @@ export class GameScene {
     this.addDamageNumber(target, event.amount, this.isStructureDamageTarget(target) ? "structure" : "damage", source);
     this.applyPredictedRemoteDamage(target, event.amount);
     return true;
+  }
+
+  getWorldHostPlayerId() {
+    return this.worldHostId || this.multiplayer?.lastRoom?.hostId || (this.isHost ? this.player.id : null);
   }
 
   applyPredictedRemoteDamage(target, amount) {
@@ -1468,6 +1627,13 @@ export class GameScene {
       const currentHealth = Number.isFinite(target.health) ? target.health : maxHealth * (target.healthRatio ?? 1);
       target.health = Math.max(0, currentHealth - amount);
       target.healthRatio = target.health / maxHealth;
+      target.alive = target.health > 0;
+      return;
+    }
+    if (target.isRemoteMob) {
+      const maxHealth = Math.max(1, target.maxHealth || 80);
+      const currentHealth = Number.isFinite(target.health) ? target.health : maxHealth * (target.healthRatio ?? 1);
+      target.health = Math.max(0, currentHealth - amount);
       target.alive = target.health > 0;
     }
   }
@@ -1511,7 +1677,12 @@ export class GameScene {
     if (event.targetOwnerId !== this.player.id) {
       return;
     }
-    const target = event.targetKind === "player" ? this.player : this.base.buildings.find((building) => building.id === event.targetId);
+    const target =
+      event.targetKind === "player"
+        ? this.player
+        : event.targetKind === "mob"
+          ? this.mobs.find((mob) => mob.id === event.targetId)
+          : this.base.buildings.find((building) => building.id === event.targetId);
     if (!target?.alive) {
       return;
     }
@@ -1519,13 +1690,13 @@ export class GameScene {
     this.applyDamage(target, event.amount, {
       sourceId: event.sourcePlayerId,
       sourceOwnerId: event.sourcePlayerId,
-      sourceKind: "remotePlayer",
+      sourceKind: event.sourceKind || "remotePlayer",
       sourceX: event.sourceX,
       sourceY: event.sourceY,
       status: event.status,
       remoteEvent: true
     });
-    if (wasAlive && !target.alive) {
+    if (wasAlive && !target.alive && (target === this.player || target.type === "core")) {
       this.emitPvPOutcomeForLocalDeath(target, event);
     }
   }
@@ -1574,8 +1745,17 @@ export class GameScene {
   }
 
   applyPvPOutcomeEvent(event) {
+    if (event.serverTime && event.serverTime < (this.sceneStartedAt || 0) - 1500) {
+      return;
+    }
     const isKiller = event.killerId === this.player.id;
     const isVictim = event.victimId === this.player.id || event.targetOwnerId === this.player.id;
+    if (isKiller && event.type === "mobDefeated") {
+      const reward = this.rewardSystem.grantSyncedMobReward(this.player, event);
+      this.addToast(`${event.mobName || "Mob"} defeated: +${reward.xp} XP, +${reward.gold}g, +${reward.resources} build.`);
+      this.addFloatingText(this.player.x, this.player.y - 60, "PvE reward", "#e7bd58");
+      return;
+    }
     if (isKiller && (event.type === "playerDefeated" || event.type === "playerEliminated")) {
       const reward = this.rewardSystem.grantPlayerKillReward(this.player, event);
       this.addToast(`${event.victimName || "Enemy"} defeated: +${reward.xp} XP, +${reward.gold}g, +${reward.resources} build.`);
@@ -1608,9 +1788,16 @@ export class GameScene {
     if (!this.multiplayer || this.gameOver || this.gameWon) {
       return;
     }
-    const livingRivals = Array.from(this.remotePlayers.values()).filter((remote) => remote.alive || (remote.respawnTimer || 0) > 0);
-    const activeRivalCores = Array.from(this.remoteBases.values()).some((remoteBase) => remoteBase.buildings?.some((building) => building.type === "core" && building.alive !== false));
-    if (livingRivals.length === 0 && !activeRivalCores) {
+    const activeRivals = Array.from(this.remotePlayers.values()).filter(
+      (remote) => !remote.eliminated && !remote.spectating && (remote.alive || (remote.respawnTimer || 0) > 0)
+    );
+    const activeRivalIds = new Set(activeRivals.map((remote) => remote.id));
+    const activeRivalCores = Array.from(this.remoteBases.values()).some(
+      (remoteBase) =>
+        activeRivalIds.has(remoteBase.playerId) &&
+        remoteBase.buildings?.some((building) => building.type === "core" && building.alive !== false)
+    );
+    if (activeRivals.length === 0 && !activeRivalCores) {
       this.win("All online rivals have been eliminated.");
     }
   }
@@ -1705,7 +1892,9 @@ export class GameScene {
     for (const camp of this.campStates) {
       const activeRadius = CONFIG.performance?.activeCampRadius || 2400;
       const hasNearbyActor =
-        distance(camp, this.player) < activeRadius || (this.aiPlayers || []).some((ai) => ai.player.alive && distance(camp, ai.player) < activeRadius);
+        distance(camp, this.player) < activeRadius ||
+        (this.aiPlayers || []).some((ai) => ai.player.alive && distance(camp, ai.player) < activeRadius) ||
+        Array.from(this.remotePlayers?.values?.() || []).some((remote) => remote.alive && distance(camp, remote) < activeRadius);
       const tierConfig = CONFIG.campTiers[camp.tier] || CONFIG.campTiers[1];
       const campMax = camp.maxMobs || tierConfig.maxMobs || CONFIG.mobs.campMax;
       const livingCampMobs = campCounts.get(camp.id) || 0;
@@ -3281,6 +3470,10 @@ export class GameScene {
     }
 
     this.clearQueuedAbility();
+    if (this.multiplayer) {
+      this.enterSpectatorMode("You were defeated. You can keep watching the match or leave the room.");
+      return;
+    }
     if (this.player.consumeExtraLife()) {
       this.addToast("Boss blessing consumed: instant extra life triggered. No loot dropped.");
       this.addFloatingText(this.player.x, this.player.y - 52, "Extra life", "#ffcf5a");
@@ -3305,6 +3498,40 @@ export class GameScene {
     );
   }
 
+  enterSpectatorMode(reason) {
+    if (this.spectating) {
+      return;
+    }
+    this.spectating = true;
+    this.player.alive = false;
+    this.player.health = 0;
+    this.player.respawnTimer = 0;
+    this.player.eliminated = true;
+    this.match.matchLost = true;
+    this.cameraLocked = false;
+    const focus = this.getSpectatorFocus();
+    if (focus) {
+      this.cameraLookTarget = focus;
+      this.spectatorFocusId = focus.id || null;
+    }
+    this.addToast("You are now spectating the match.");
+    this.ui.showMessage("Eliminated", "Spectator Mode", reason, {
+      primaryLabel: "Leave Match",
+      primaryAction: "leave",
+      secondaryLabel: "Spectate",
+      secondaryAction: "hide"
+    });
+  }
+
+  leaveMatch() {
+    if (this.onLeaveMatch) {
+      this.onLeaveMatch();
+      return;
+    }
+    this.multiplayer?.leaveRoom?.();
+    window.location.href = window.location.pathname;
+  }
+
   dropPlayerHeldLoot(player, label = "Gear") {
     const dropped = player.dropCarriedAndEquippedLoot?.() || [];
     for (const item of dropped) {
@@ -3324,6 +3551,26 @@ export class GameScene {
       return;
     }
     mob.rewardsGranted = true;
+
+    const remoteKillerId = source.sourceOwnerId || source.sourceId;
+    if (this.multiplayer && remoteKillerId && remoteKillerId !== this.player.id && this.remotePlayers.has(remoteKillerId)) {
+      const reward = {
+        xp: mob.isBoss ? 180 : mob.xpReward || 0,
+        gold: mob.isBoss ? 260 : mob.goldReward || 0,
+        resources: mob.isBoss ? 220 : mob.resourceReward || 0
+      };
+      if (mob.isBoss) {
+        this.bossDefeated = true;
+        const bossObjective = this.objectives.find((objective) => objective.type === "boss");
+        if (bossObjective) {
+          bossObjective.captured = true;
+          bossObjective.ownerId = remoteKillerId;
+        }
+      }
+      this.emitRemoteMobReward(mob, remoteKillerId, reward);
+      this.addFloatingText(mob.x, mob.y - 50, "Defeated", "#e7bd58");
+      return;
+    }
 
     if (mob.isBoss) {
       const owner = this.getRewardPlayerForSource(source) || this.player;
@@ -3376,6 +3623,26 @@ export class GameScene {
     }
   }
 
+  emitRemoteMobReward(mob, killerId, reward) {
+    if (!this.multiplayer?.queueCombatEvent || !killerId) {
+      return;
+    }
+    this.multiplayer.queueCombatEvent({
+      type: "mobDefeated",
+      targetOwnerId: this.player.id,
+      targetId: mob.id,
+      killerId,
+      killerName: this.remotePlayers.get(killerId)?.displayName || this.remotePlayers.get(killerId)?.name || "Player",
+      mobTier: mob.tier || 1,
+      mobLevel: mob.scaledLevel || mob.tier || 1,
+      mobName: mob.isBoss ? "Boss" : `${labelizeBuildingType(mob.campType || "Mob")} Mob`,
+      bossBuff: Boolean(mob.isBoss),
+      rewardXP: reward.xp || 0,
+      rewardGold: reward.gold || 0,
+      rewardResources: reward.resources || 0
+    });
+  }
+
   onObjectiveCaptured(objective, owner = this.player) {
     objective.claim?.(owner);
     const rewardText = this.rewardSystem.grantObjectiveReward(owner, objective);
@@ -3415,7 +3682,11 @@ export class GameScene {
   }
 
   getRewardPlayerForSource(source = {}) {
-    if (source.sourceOwnerId === this.player.id || source.sourceId === this.player.id || source.sourceKind === "player") {
+    if (
+      source.sourceOwnerId === this.player.id ||
+      source.sourceId === this.player.id ||
+      (source.sourceKind === "player" && !source.sourceOwnerId && !source.sourceId)
+    ) {
       return this.player;
     }
     const ai = this.getAIById(source.sourceOwnerId || source.sourceId);
@@ -4597,6 +4868,10 @@ export class GameScene {
   }
 
   eliminate(reason) {
+    if (this.multiplayer) {
+      this.enterSpectatorMode(reason || "You have been eliminated from the online match.");
+      return;
+    }
     this.gameOver = true;
     this.player.eliminated = true;
     this.match.matchLost = true;
@@ -4664,7 +4939,7 @@ export class GameScene {
   }
 
   updateCamera() {
-    const followTarget = this.player.alive ? this.player : this.base.core || this.player;
+    const followTarget = this.spectating ? this.getSpectatorFocus() || this.player : this.player.alive ? this.player : this.base.core || this.player;
     const focus = this.cameraLocked ? followTarget : this.cameraLookTarget || followTarget;
     const targetX = clamp(focus.x - this.viewWidth / 2, 0, Math.max(0, CONFIG.world.width - this.viewWidth));
     const targetY = clamp(focus.y - this.viewHeight / 2, 0, Math.max(0, CONFIG.world.height - this.viewHeight));
@@ -4672,6 +4947,26 @@ export class GameScene {
     this.camera.x += (targetX - this.camera.x) * follow;
     this.camera.y += (targetY - this.camera.y) * follow;
     this.input.mouseWorld = this.screenToWorld(this.input.mouseScreen);
+  }
+
+  getSpectatorFocus() {
+    if (this.spectatorFocusId) {
+      const remote = this.remotePlayers.get(this.spectatorFocusId);
+      if (remote?.alive) {
+        return remote;
+      }
+    }
+    const livingRemote = Array.from(this.remotePlayers.values()).find((remote) => remote.alive);
+    if (livingRemote) {
+      return livingRemote;
+    }
+    for (const remoteBase of this.remoteBases.values()) {
+      const core = (remoteBase.buildings || []).find((building) => building.type === "core" && building.alive !== false);
+      if (core) {
+        return core;
+      }
+    }
+    return this.base.core || this.player;
   }
 
   drawCamps(ctx) {

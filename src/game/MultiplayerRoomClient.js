@@ -158,6 +158,9 @@ export class MultiplayerRoomClient {
 
   applyRoomToScene(scene, room) {
     this.noteServerTime(room);
+    this.isHost = room.hostId === this.playerId;
+    scene.isHost = this.isHost;
+    scene.worldHostId = room.hostId || scene.worldHostId;
     const remotes = (room.players || []).filter((player) => player.id !== this.playerId && player.state);
     scene.setRemoteSnapshots(remotes);
     scene.applyRemoteCombatEvents?.(room.events || []);
@@ -500,7 +503,6 @@ function normalizeRoomCode(code) {
 function getOrCreatePlayerId() {
   return `player-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
-
 
 
 
