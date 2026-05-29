@@ -20,6 +20,7 @@ export class MultiplayerRoomClient {
     this.lastRoom = null;
     this.unsubscribeRoom = null;
     this.roomUpdateHandler = null;
+    this.outgoingEvents = [];
   }
 
   async createRoom(settings = {}) {
@@ -97,17 +98,19 @@ export class MultiplayerRoomClient {
     }
     this.sendTimer -= dt;
     this.pollTimer -= dt;
-    if (this.sendTimer > 0 && this.pollTimer > 0) {
+    const hasQueuedEvents = this.outgoingEvents.length > 0;
+    if (this.sendTimer > 0 && this.pollTimer > 0 && !hasQueuedEvents) {
       return;
     }
 
-    const shouldSend = this.sendTimer <= 0;
+    const shouldSend = this.sendTimer <= 0 || hasQueuedEvents;
+    const queuedEvents = this.outgoingEvents.splice(0, 32);
     this.sendTimer = shouldSend ? 0.1 : this.sendTimer;
     this.pollTimer = this.pollTimer <= 0 ? 0.45 : this.pollTimer;
     this.busy = true;
-    const state = shouldSend ? scene.snapshotForMultiplayer() : null;
+    const state = shouldSend || queuedEvents.length > 0 ? scene.snapshotForMultiplayer() : null;
     const task = state
-      ? this.transport.updatePlayerState(this.roomCode, this.playerPayload(this.isHost), state)
+      ? this.transport.updatePlayerState(this.roomCode, this.playerPayload(this.isHost), state, queuedEvents)
       : this.transport.getRoom(this.roomCode, this.playerPayload(this.isHost));
 
     task
@@ -116,6 +119,10 @@ export class MultiplayerRoomClient {
         this.applyRoomToScene(scene, room);
       })
       .catch((error) => {
+        if (queuedEvents.length > 0) {
+          this.outgoingEvents.unshift(...queuedEvents);
+          this.outgoingEvents = this.outgoingEvents.slice(-64);
+        }
         scene.addToast?.(`Room sync paused: ${error.message}`);
       })
       .finally(() => {
@@ -126,6 +133,21 @@ export class MultiplayerRoomClient {
   applyRoomToScene(scene, room) {
     const remotes = (room.players || []).filter((player) => player.id !== this.playerId && player.state);
     scene.setRemoteSnapshots(remotes);
+    scene.applyRemoteCombatEvents?.(room.events || []);
+  }
+
+  queueCombatEvent(event) {
+    if (!event || !this.roomCode) {
+      return;
+    }
+    this.outgoingEvents.push({
+      ...event,
+      id: event.id || `evt-${this.playerId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      sourcePlayerId: this.playerId,
+      sourceName: this.displayName || "Player",
+      timestamp: Date.now()
+    });
+    this.outgoingEvents = this.outgoingEvents.slice(-64);
   }
 
   playerPayload(isHost = false) {
@@ -168,10 +190,10 @@ class HttpRoomTransport {
     });
   }
 
-  async updatePlayerState(code, player, state) {
+  async updatePlayerState(code, player, state, events = []) {
     return requestJson(`/api/rooms/${encodeURIComponent(code)}/state`, {
       method: "POST",
-      body: { player, state }
+      body: { player, state, events }
     });
   }
 
@@ -281,7 +303,7 @@ class LocalRoomTransport {
     return room;
   }
 
-  async updatePlayerState(code, player, state) {
+  async updatePlayerState(code, player, state, events = []) {
     const room = await this.getRoom(code, player);
     const index = room.players.findIndex((existing) => existing.id === player.id);
     if (index >= 0) {
@@ -292,6 +314,7 @@ class LocalRoomTransport {
         state
       };
     }
+    appendLocalEvents(room, events, player);
     room.updatedAt = Date.now();
     writeRoom(cleanRoom(room));
     return readRoom(code);
@@ -314,6 +337,25 @@ class LocalRoomTransport {
     writeRoom(cleanRoom(room));
     return readRoom(code);
   }
+}
+
+function appendLocalEvents(room, events = [], player = {}) {
+  if (!Array.isArray(events) || events.length === 0) {
+    return;
+  }
+  room.events ||= [];
+  room.nextEventSeq ||= 1;
+  for (const event of events.slice(0, 24)) {
+    if (!event?.type || event.sourcePlayerId !== player.id) {
+      continue;
+    }
+    room.events.push({
+      ...event,
+      seq: room.nextEventSeq++,
+      serverTime: Date.now()
+    });
+  }
+  room.events = room.events.slice(-240);
 }
 
 async function withFallback(operation) {
@@ -409,8 +451,6 @@ function normalizeRoomCode(code) {
 function getOrCreatePlayerId() {
   return `player-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
-
-
 
 
 

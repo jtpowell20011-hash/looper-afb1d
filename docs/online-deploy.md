@@ -9,8 +9,9 @@ Basebound must be deployed as a Node web service for online rooms to work. A sta
 - Guests join through a shared link like `https://your-basebound-url.onrender.com/?room=ABCDE`.
 - The server owns room membership, ready/start state, shared world settings, shared world seed, and player/base snapshots.
 - Clients render the same seeded map and exchange live player/base state through the server.
+- PvP combat now relays sanitized damage/outcome events through the room server so players can target, damage, defeat, and earn rewards from enemy heroes and bases during friend tests.
 
-This is the first playable online layer. The next production milestone is moving combat validation, mobs, loot, objective ownership, base damage, and rewards to a fully authoritative server simulation.
+This is the first playable online PvP layer. The next production milestone is moving combat validation, mobs, loot, objective ownership, base damage, and rewards to a fully authoritative server simulation with anti-cheat.
 
 ## Render Blueprint Deployment
 
@@ -53,6 +54,7 @@ After deployment:
 4. Confirm both players appear in the room list.
 5. Host starts the match.
 6. Confirm both players load into the same map and see each other moving.
+7. Place bases, target each other, damage structures, and confirm PvP rewards appear when a player or core is defeated.
 
 ## Important Architecture Note
 

@@ -1,5 +1,5 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.50";
+import { CONFIG } from "./config.js?v=1.8.51";
 export class DamageTracker {
   constructor() {
     this.contributions = new Map();
@@ -112,6 +112,33 @@ export class RewardSystem {
     player.addXP(180);
     player.applyBossBuff?.();
     return createLootItem(5, "boss", { slot: "relic", label: "Boss Relic Core", rarity: "legendary" });
+  }
+
+  grantPlayerKillReward(player, victimSnapshot = {}) {
+    const pvp = CONFIG.combat?.pvp || {};
+    const victimLevel = Math.max(1, victimSnapshot.level || victimSnapshot.victimLevel || 1);
+    const reward = {
+      xp: Math.round((pvp.playerKillXP || 180) + victimLevel * (pvp.playerKillXPPerLevel || 42)),
+      gold: Math.round((pvp.playerKillGold || 160) + victimLevel * (pvp.playerKillGoldPerLevel || 28)),
+      resources: Math.round((pvp.playerKillResources || 110) + victimLevel * (pvp.playerKillResourcesPerLevel || 18))
+    };
+    player.addXP(reward.xp);
+    player.currency += reward.gold;
+    player.resources += reward.resources;
+    return reward;
+  }
+
+  grantCoreDestroyReward(player) {
+    const pvp = CONFIG.combat?.pvp || {};
+    const reward = {
+      xp: pvp.coreDestroyXP || 220,
+      gold: pvp.coreDestroyGold || 220,
+      resources: pvp.coreDestroyResources || 180
+    };
+    player.addXP(reward.xp);
+    player.currency += reward.gold;
+    player.resources += reward.resources;
+    return reward;
   }
 
   distributeFuturePlayerKillReward(_victimSnapshot, _damageTracker) {

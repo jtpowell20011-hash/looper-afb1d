@@ -4,11 +4,11 @@ The local `http://192.168...` link is only a temporary LAN preview. A public pla
 
 ## Important Multiplayer Note
 
-Multiplayer is currently paused in the main menu while the solo AI enemy-player loop is being tested. Keep this document for the next multiplayer pass.
+Multiplayer is enabled as an online PvP alpha. It supports hosted rooms, shared world settings, player/base snapshots, and PvP damage/outcome relay for friend playtests. It is still not fully server-authoritative, so public competitive tests should wait until the server owns combat, mobs, objectives, loot, and rewards.
 
 Basebound's room codes use a small API in `server.js`. Static hosts can serve the game, but they cannot keep the in-memory room server running.
 
-- Use a Node web service for public two-player room testing.
+- Use a Node web service for public PvP room testing.
 - Use static Netlify hosting only for solo mode or same-browser local-tab room testing.
 
 ## Recommended Prototype Host

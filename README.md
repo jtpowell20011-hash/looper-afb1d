@@ -40,7 +40,7 @@ https://your-basebound-site.onrender.com/?room=ABCDE
 
 The host can copy that link from the room panel. A guest opening it from anywhere will be routed into that room flow automatically.
 
-The current online mode is an alpha room-sync layer: it synchronizes room membership, start state, player position/status, selected class, and base snapshots over the Node server using server-sent events. It also shares the same generated map seed so hosted clients load the same world. Full server-authoritative combat, mobs, objectives, loot, and anti-cheat should be the next multiplayer milestone before larger public tests.
+The current online mode is an alpha PvP room layer: it synchronizes room membership, start state, player position/status, selected class, base snapshots, and PvP damage/outcome events over the Node server using server-sent events. It also shares the same generated map seed so hosted clients load the same world. Full server-authoritative combat, mobs, objectives, loot, and anti-cheat should be the next multiplayer milestone before larger public tests.
 
 Recommended online deployment:
 

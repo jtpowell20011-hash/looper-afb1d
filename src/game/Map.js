@@ -1,5 +1,5 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.50";
+import { CONFIG } from "./config.js?v=1.8.51";
 
 const BASE_WORLD = { width: 16800, height: 12600 };
 

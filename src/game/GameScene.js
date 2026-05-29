@@ -1,19 +1,19 @@
 // @ts-check
-import { BaseController } from "./Base.js?v=1.8.50";
-import { AIPlayerController } from "./AIPlayer.js?v=1.8.50";
-import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.50";
-import { CONFIG } from "./config.js?v=1.8.50";
-import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.50";
-import { GameMap } from "./Map.js?v=1.8.50";
-import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.50";
-import { MatchManager } from "./MatchManager.js?v=1.8.50";
-import { Mob } from "./Mob.js?v=1.8.50";
-import { createObjectives } from "./Objective.js?v=1.8.50";
-import { Player } from "./Player.js?v=1.8.50";
-import { RewardSystem } from "./RewardSystem.js?v=1.8.50";
-import { UIManager } from "./UIManager.js?v=1.8.50";
-import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.50";
-import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.50";
+import { BaseController } from "./Base.js?v=1.8.51";
+import { AIPlayerController } from "./AIPlayer.js?v=1.8.51";
+import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.51";
+import { CONFIG } from "./config.js?v=1.8.51";
+import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.51";
+import { GameMap } from "./Map.js?v=1.8.51";
+import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.51";
+import { MatchManager } from "./MatchManager.js?v=1.8.51";
+import { Mob } from "./Mob.js?v=1.8.51";
+import { createObjectives } from "./Objective.js?v=1.8.51";
+import { Player } from "./Player.js?v=1.8.51";
+import { RewardSystem } from "./RewardSystem.js?v=1.8.51";
+import { UIManager } from "./UIManager.js?v=1.8.51";
+import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.51";
+import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.51";
 
 export class GameScene {
   constructor(canvas, options = {}) {
@@ -166,6 +166,9 @@ export class GameScene {
     this.selectedTarget = null;
     this.autoAttackToastTimer = 0;
     this.targetPanelDirty = true;
+    this.appliedRemoteCombatEventIds = new Set();
+    this.appliedRemoteCombatEventOrder = [];
+    this.sentPvPOutcomeEvents = new Set();
     this.recall = {
       active: false,
       timer: 0,
@@ -926,6 +929,9 @@ export class GameScene {
         targets.push(remote);
       }
     }
+    for (const remoteBase of this.remoteBases?.values?.() || []) {
+      targets.push(...(remoteBase.buildings || []).filter((building) => building.alive !== false));
+    }
     for (const defender of this.baseDefenders || []) {
       if (defender.alive && defender.ownerId !== this.player.id) {
         targets.push(defender);
@@ -946,6 +952,12 @@ export class GameScene {
     }
     if ((this.neutralTowers || []).includes(target)) {
       return this.canDamageNeutralTower(target, { sourceOwnerId: this.player.id, sourceKind: "player" });
+    }
+    if (target?.isRemotePlayer || target?.isRemoteBuilding) {
+      const stillPresent = target.isRemotePlayer
+        ? this.remotePlayers?.has?.(target.id)
+        : this.getRemoteBaseBuildings().includes(target);
+      return Boolean(this.multiplayer && stillPresent && target.ownerId !== this.player.id && target.id !== this.player.id);
     }
     return true;
   }
@@ -1018,6 +1030,8 @@ export class GameScene {
     if ((this.neutralTowers || []).includes(target)) return target.type === "vision" ? "Vision Tower" : "Turret Tower";
     if ((this.baseDefenders || []).includes(target)) return "Deployable";
     if (this.isAIPlayerEntity(target)) return "AI Rival";
+    if (target?.isRemotePlayer) return "Enemy Player";
+    if (target?.isRemoteBuilding) return "Enemy Structure";
     if (target?.type) return "Structure";
     return "Enemy";
   }
@@ -1296,10 +1310,14 @@ export class GameScene {
           x: Math.round(building.x),
           y: Math.round(building.y),
           level: building.level,
+          health: Math.ceil(building.health),
+          maxHealth: Math.ceil(building.maxHealth),
           healthRatio: building.healthRatio,
           width: building.width,
           height: building.height,
-          radius: building.radius
+          radius: building.radius,
+          layer: building.layer || 1,
+          label: building.label
         }))
       },
       match: {
@@ -1329,6 +1347,8 @@ export class GameScene {
       }
       proxy.name = remote.name || snap.name || "Player";
       proxy.displayName = proxy.name;
+      proxy.ownerId = remote.id;
+      proxy.isRemotePlayer = true;
       proxy.characterId = snap.characterId || proxy.characterId || "ranger";
       proxy.characterLabel = snap.characterLabel || proxy.characterLabel;
       proxy.level = snap.level ?? proxy.level ?? 1;
@@ -1351,10 +1371,25 @@ export class GameScene {
         proxy.targetY = snap.y;
       }
       if (remote.state?.base?.buildings) {
+        const remoteBuildings = remote.state.base.buildings.map((building) => ({
+          ...building,
+          id: building.id,
+          ownerId: remote.id,
+          ownerName: proxy.name,
+          isRemoteBuilding: true,
+          alive: building.healthRatio !== 0 && building.health !== 0,
+          health: building.health,
+          maxHealth: building.maxHealth,
+          healthRatio: building.healthRatio ?? (building.health && building.maxHealth ? building.health / Math.max(1, building.maxHealth) : 1),
+          radius: building.radius || (building.type === "core" ? 34 : 24),
+          label: building.label || `${proxy.name}'s ${labelizeBuildingType(building.type)}`
+        }));
         nextBases.set(remote.id, {
           playerId: remote.id,
           name: proxy.name,
-          buildings: remote.state.base.buildings
+          active: remote.state.base.active !== false,
+          displaced: Boolean(remote.state.base.displaced),
+          buildings: remoteBuildings
         });
       }
     }
@@ -1366,6 +1401,195 @@ export class GameScene {
     this.remoteBases = nextBases;
   }
 
+  getRemoteBaseBuildings() {
+    return Array.from(this.remoteBases.values()).flatMap((remoteBase) => remoteBase.buildings || []).filter((building) => building.alive !== false);
+  }
+
+  isRemoteCombatTarget(target) {
+    return Boolean(this.multiplayer && target && (target.isRemotePlayer || target.isRemoteBuilding));
+  }
+
+  emitRemoteDamageIntent(target, amount, source = {}) {
+    if (!CONFIG.combat?.pvp?.enabled || !CONFIG.combat?.pvp?.remoteDamageEvents || !this.multiplayer?.queueCombatEvent) {
+      return false;
+    }
+    const sourceOwnerId = source.sourceOwnerId || source.sourceId || this.player.id;
+    if (sourceOwnerId !== this.player.id) {
+      return false;
+    }
+    const targetOwnerId = target.isRemotePlayer ? target.id : target.ownerId;
+    if (!targetOwnerId || targetOwnerId === this.player.id) {
+      return false;
+    }
+    const event = {
+      type: "damage",
+      targetOwnerId,
+      targetId: target.id,
+      targetKind: target.isRemotePlayer ? "player" : "building",
+      targetType: target.type || "player",
+      amount: Math.max(1, Math.round(amount)),
+      sourceKind: "player",
+      sourceX: Number.isFinite(source.sourceX) ? source.sourceX : this.player.x,
+      sourceY: Number.isFinite(source.sourceY) ? source.sourceY : this.player.y,
+      status: source.status || null
+    };
+    this.multiplayer.queueCombatEvent(event);
+    this.addDamageNumber(target, event.amount, this.isStructureDamageTarget(target) ? "structure" : "damage", source);
+    this.applyPredictedRemoteDamage(target, event.amount);
+    return true;
+  }
+
+  applyPredictedRemoteDamage(target, amount) {
+    if (target.isRemotePlayer) {
+      const maxHealth = Math.max(1, target.maxHealth || 100);
+      const currentHealth = Number.isFinite(target.health) ? target.health : maxHealth * (target.healthRatio ?? 1);
+      target.health = Math.max(0, currentHealth - amount);
+      target.healthRatio = target.health / maxHealth;
+      target.alive = target.health > 0;
+      return;
+    }
+    if (target.isRemoteBuilding) {
+      const maxHealth = Math.max(1, target.maxHealth || 120);
+      const currentHealth = Number.isFinite(target.health) ? target.health : maxHealth * (target.healthRatio ?? 1);
+      target.health = Math.max(0, currentHealth - amount);
+      target.healthRatio = target.health / maxHealth;
+      target.alive = target.health > 0;
+    }
+  }
+
+  applyRemoteCombatEvents(events = []) {
+    if (!Array.isArray(events) || events.length === 0 || !this.multiplayer) {
+      return;
+    }
+    for (const event of events) {
+      if (!event?.id || this.appliedRemoteCombatEventIds.has(event.id)) {
+        continue;
+      }
+      this.appliedRemoteCombatEventIds.add(event.id);
+      this.appliedRemoteCombatEventOrder.push(event.id);
+      if (this.appliedRemoteCombatEventOrder.length > 600) {
+        const oldId = this.appliedRemoteCombatEventOrder.shift();
+        this.appliedRemoteCombatEventIds.delete(oldId);
+      }
+      if (event.type === "damage") {
+        if (event.sourcePlayerId === this.player.id) {
+          continue;
+        }
+        this.applyIncomingPvPDamage(event);
+      } else {
+        this.applyPvPOutcomeEvent(event);
+      }
+    }
+  }
+
+  applyIncomingPvPDamage(event) {
+    if (event.targetOwnerId !== this.player.id) {
+      return;
+    }
+    const target = event.targetKind === "player" ? this.player : this.base.buildings.find((building) => building.id === event.targetId);
+    if (!target?.alive) {
+      return;
+    }
+    const wasAlive = target.alive;
+    this.applyDamage(target, event.amount, {
+      sourceId: event.sourcePlayerId,
+      sourceOwnerId: event.sourcePlayerId,
+      sourceKind: "remotePlayer",
+      sourceX: event.sourceX,
+      sourceY: event.sourceY,
+      status: event.status,
+      remoteEvent: true
+    });
+    if (wasAlive && !target.alive) {
+      this.emitPvPOutcomeForLocalDeath(target, event);
+    }
+  }
+
+  emitPvPOutcomeForLocalDeath(target, sourceEvent) {
+    if (!this.multiplayer?.queueCombatEvent || !sourceEvent?.sourcePlayerId) {
+      return;
+    }
+    if (target === this.player) {
+      const eliminated = Boolean(this.player.eliminated || (!this.base.hasActiveCore && !this.player.alive));
+      const type = eliminated ? "playerEliminated" : "playerDefeated";
+      const key = `${type}:${this.player.id}:${sourceEvent.sourcePlayerId}`;
+      if (this.sentPvPOutcomeEvents.has(key)) {
+        return;
+      }
+      this.sentPvPOutcomeEvents.add(key);
+      this.multiplayer.queueCombatEvent({
+        type,
+        targetOwnerId: this.player.id,
+        victimId: this.player.id,
+        victimName: this.player.displayName || this.playerName,
+        victimLevel: this.player.level,
+        killerId: sourceEvent.sourcePlayerId,
+        killerName: sourceEvent.sourceName || "Enemy",
+        targetId: this.player.id
+      });
+      return;
+    }
+    if (target.type === "core") {
+      const key = `coreDestroyed:${target.id}:${sourceEvent.sourcePlayerId}`;
+      if (this.sentPvPOutcomeEvents.has(key)) {
+        return;
+      }
+      this.sentPvPOutcomeEvents.add(key);
+      this.multiplayer.queueCombatEvent({
+        type: "coreDestroyed",
+        targetOwnerId: this.player.id,
+        targetId: target.id,
+        victimId: this.player.id,
+        victimName: this.player.displayName || this.playerName,
+        victimLevel: this.player.level,
+        killerId: sourceEvent.sourcePlayerId,
+        killerName: sourceEvent.sourceName || "Enemy"
+      });
+    }
+  }
+
+  applyPvPOutcomeEvent(event) {
+    const isKiller = event.killerId === this.player.id;
+    const isVictim = event.victimId === this.player.id || event.targetOwnerId === this.player.id;
+    if (isKiller && (event.type === "playerDefeated" || event.type === "playerEliminated")) {
+      const reward = this.rewardSystem.grantPlayerKillReward(this.player, event);
+      this.addToast(`${event.victimName || "Enemy"} defeated: +${reward.xp} XP, +${reward.gold}g, +${reward.resources} build.`);
+      this.addFloatingText(this.player.x, this.player.y - 60, "PvP reward", "#ffcf5a");
+      if (event.type === "playerEliminated") {
+        this.checkMultiplayerVictory();
+      }
+      return;
+    }
+    if (isKiller && event.type === "coreDestroyed") {
+      const reward = this.rewardSystem.grantCoreDestroyReward(this.player);
+      this.addToast(`${event.victimName || "Enemy"} core destroyed: +${reward.xp} XP, +${reward.gold}g, +${reward.resources} build.`);
+      this.addFloatingText(this.player.x, this.player.y - 60, "Core bounty", "#e85b58");
+      return;
+    }
+    if (isVictim) {
+      return;
+    }
+    if (event.type === "playerEliminated") {
+      this.addToast(`${event.killerName || "A rival"} eliminated ${event.victimName || "a player"}.`);
+      this.checkMultiplayerVictory();
+    } else if (event.type === "coreDestroyed") {
+      this.addToast(`${event.killerName || "A rival"} destroyed ${event.victimName || "a player"}'s core.`);
+    } else if (event.type === "playerDefeated") {
+      this.addToast(`${event.killerName || "A rival"} defeated ${event.victimName || "a player"}.`);
+    }
+  }
+
+  checkMultiplayerVictory() {
+    if (!this.multiplayer || this.gameOver || this.gameWon) {
+      return;
+    }
+    const livingRivals = Array.from(this.remotePlayers.values()).filter((remote) => remote.alive || (remote.respawnTimer || 0) > 0);
+    const activeRivalCores = Array.from(this.remoteBases.values()).some((remoteBase) => remoteBase.buildings?.some((building) => building.type === "core" && building.alive !== false));
+    if (livingRivals.length === 0 && !activeRivalCores) {
+      this.win("All online rivals have been eliminated.");
+    }
+  }
+
   tryRespawn() {
     if (this.player.alive || this.player.respawnTimer > 0) {
       return;
@@ -1374,6 +1598,7 @@ export class GameScene {
     const core = this.base.core;
     if (core) {
       this.player.respawnAt(core.x + 72, core.y + 24);
+      this.sentPvPOutcomeEvents.clear();
       this.addToast("Hero respawned at the base core.");
     } else {
       this.eliminate("Your hero died while no active base core existed.");
@@ -1556,6 +1781,19 @@ export class GameScene {
           }
         }
         if (projectile.alive) {
+          for (const remote of this.remotePlayers.values()) {
+            if (!remote.alive || projectile.hitIds.has(remote.id) || !circleIntersects(projectile, remote)) {
+              continue;
+            }
+            projectile.hitIds.add(remote.id);
+            this.applyDamage(remote, this.getProjectileDamageAgainstPlayer(projectile, remote), this.projectileSource(projectile));
+            if (!projectile.pierce) {
+              projectile.alive = false;
+              break;
+            }
+          }
+        }
+        if (projectile.alive) {
           for (const ai of this.aiPlayers || []) {
             for (const building of ai.base.livingBuildings) {
               if (projectile.hitIds.has(building.id) || !circleIntersects(projectile, building)) {
@@ -1569,6 +1807,17 @@ export class GameScene {
             if (!projectile.alive) {
               break;
             }
+          }
+        }
+        if (projectile.alive) {
+          for (const building of this.getRemoteBaseBuildings()) {
+            if (projectile.hitIds.has(building.id) || !circleIntersectsBuilding(projectile, building)) {
+              continue;
+            }
+            projectile.hitIds.add(building.id);
+            this.applyDamage(building, projectile.damage, this.projectileSource(projectile));
+            projectile.alive = false;
+            break;
           }
         }
       } else if (projectile.team === "ai") {
@@ -2286,11 +2535,22 @@ export class GameScene {
           this.applyDamage(ai.player, nextEffect.damage, source);
         }
       }
+      for (const remote of this.remotePlayers.values()) {
+        if (remote.alive && this.effectContainsTarget(nextEffect, remote)) {
+          nextEffect.hitIds.add(remote.id);
+          this.applyDamage(remote, nextEffect.damage, source);
+        }
+      }
       for (const ai of this.aiPlayers || []) {
         for (const building of ai.base.livingBuildings) {
           if (this.effectContainsTarget(nextEffect, building)) {
             this.applyDamage(building, nextEffect.damage, source);
           }
+        }
+      }
+      for (const building of this.getRemoteBaseBuildings()) {
+        if (this.effectContainsTarget(nextEffect, building)) {
+          this.applyDamage(building, nextEffect.damage, source);
         }
       }
       for (const defender of this.baseDefenders || []) {
@@ -2595,6 +2855,8 @@ export class GameScene {
         if (ai.player.alive) targets.push(ai.player);
         targets.push(...ai.base.livingBuildings);
       }
+      targets.push(...Array.from(this.remotePlayers.values()).filter((remote) => remote.alive));
+      targets.push(...this.getRemoteBaseBuildings());
     }
     return targets.filter((target) => target?.alive !== false);
   }
@@ -2647,6 +2909,11 @@ export class GameScene {
     finalAmount = Math.max(1, Math.round(finalAmount));
 
     if (this.redirectBlockedBuildingDamage(target, finalAmount, source)) {
+      return;
+    }
+
+    if (this.isRemoteCombatTarget(target)) {
+      this.emitRemoteDamageIntent(target, finalAmount, source);
       return;
     }
 
@@ -2734,7 +3001,7 @@ export class GameScene {
   }
 
   redirectBlockedBuildingDamage(target, amount, source = {}) {
-    if (!target?.type || target.type === "wall" || source.blockedByWall || !["player", "ai", "mob"].includes(source.sourceKind)) {
+    if (!target?.type || target.type === "wall" || source.blockedByWall || !["player", "remotePlayer", "ai", "mob"].includes(source.sourceKind)) {
       return false;
     }
     const blocker = this.findWallBlockingBuildingDamage(target, source);
@@ -3054,6 +3321,19 @@ export class GameScene {
         return { base: ai.base, ownerId: ai.id, owner: ai.player };
       }
     }
+    for (const remoteBase of this.remoteBases?.values?.() || []) {
+      if ((remoteBase.buildings || []).includes(building)) {
+        return {
+          base: {
+            ...remoteBase,
+            active: remoteBase.active !== false,
+            livingBuildings: (remoteBase.buildings || []).filter((candidate) => candidate.alive !== false)
+          },
+          ownerId: remoteBase.playerId,
+          owner: this.remotePlayers.get(remoteBase.playerId) || null
+        };
+      }
+    }
     return null;
   }
 
@@ -3089,6 +3369,10 @@ export class GameScene {
     if (ai) {
       return ai.player;
     }
+    const remote = this.remotePlayers?.get?.(id);
+    if (remote) {
+      return remote;
+    }
     const mob = this.mobs.find((candidate) => candidate.id === id);
     if (mob) {
       return mob;
@@ -3122,6 +3406,16 @@ export class GameScene {
       const currentDistance = distanceSq(source, ai.player);
       if (currentDistance <= bestDistance) {
         best = ai.player;
+        bestDistance = currentDistance;
+      }
+    }
+    for (const remote of this.remotePlayers?.values?.() || []) {
+      if (!this.canTargetEntity(remote, "tower")) {
+        continue;
+      }
+      const currentDistance = distanceSq(source, remote);
+      if (currentDistance <= bestDistance) {
+        best = remote;
         bestDistance = currentDistance;
       }
     }
@@ -3294,6 +3588,20 @@ export class GameScene {
         consider(building);
       }
     }
+    for (const remote of this.remotePlayers?.values?.() || []) {
+      if (ownerId === remote.id || ownerId === remote.ownerId) {
+        continue;
+      }
+      consider(remote);
+    }
+    for (const remoteBase of this.remoteBases?.values?.() || []) {
+      if (ownerId === remoteBase.playerId) {
+        continue;
+      }
+      for (const building of remoteBase.buildings || []) {
+        consider(building);
+      }
+    }
     for (const mob of this.mobs) {
       consider(mob);
     }
@@ -3325,6 +3633,12 @@ export class GameScene {
         continue;
       }
       walls.push(...ai.base.livingBuildings.filter((building) => building.type === "wall"));
+    }
+    for (const remoteBase of this.remoteBases?.values?.() || []) {
+      if (entity?.id === remoteBase.playerId || entity?.ownerId === remoteBase.playerId) {
+        continue;
+      }
+      walls.push(...(remoteBase.buildings || []).filter((building) => building.type === "wall" && building.alive !== false));
     }
     return walls;
   }
@@ -6044,6 +6358,27 @@ function ccw(a, b, c) {
   return (c.y - a.y) * (b.x - a.x) > (b.y - a.y) * (c.x - a.x);
 }
 
+function circleIntersectsBuilding(circle, building) {
+  if (!building || (!Number.isFinite(building.width) && !Number.isFinite(building.height))) {
+    return circleIntersects(circle, building);
+  }
+  const radius = circle.radius || 0;
+  const halfW = (building.width || building.radius * 2 || 1) / 2;
+  const halfH = (building.height || building.radius * 2 || 1) / 2;
+  const nearestX = clamp(circle.x, building.x - halfW, building.x + halfW);
+  const nearestY = clamp(circle.y, building.y - halfH, building.y + halfH);
+  const dx = circle.x - nearestX;
+  const dy = circle.y - nearestY;
+  return dx * dx + dy * dy <= radius * radius;
+}
+
+function labelizeBuildingType(type = "structure") {
+  return String(type)
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 function pointInsideRect(point, rect, padding = 0) {
   return (
     point.x >= rect.x - padding &&
@@ -6158,9 +6493,3 @@ function roundRect(ctx, x, y, width, height, radius) {
   ctx.quadraticCurveTo(x, y, x + radius, y);
   ctx.closePath();
 }
-
-
-
-
-
-

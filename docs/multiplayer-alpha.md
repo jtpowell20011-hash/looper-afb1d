@@ -5,10 +5,11 @@ This build supports a lightweight online room test for friends:
 - Up to 8 players per room through `server.js`
 - Shareable invite links like `https://your-site.example/?room=ABCDE`
 - Server-sent event room updates for player/base snapshots
+- PvP damage and outcome events for remote heroes, bases, walls, towers, cores, rewards, and elimination checks
 - Shared map size, world options, and world seed so clients generate the same map
 - Local fallback for same-browser-tab testing if the Node room API is unavailable
 
-This is not server-authoritative yet. The next multiplayer milestone should move combat, mobs, objectives, loot, base damage, rewards, and win/loss checks onto the server.
+This is not fully server-authoritative yet. The next multiplayer milestone should move combat simulation, mobs, objectives, loot, base damage, rewards, and win/loss checks onto the server for anti-cheat and public-scale stability.
 
 ## Local Test
 

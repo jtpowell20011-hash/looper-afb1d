@@ -218,6 +218,19 @@ export const CONFIG = Object.freeze({
       closeRangeDamageMultiplier: 0.82,
       playerDamageMin: 0.1,
       playerDamageMax: 0.52
+    },
+    pvp: {
+      enabled: true,
+      remoteDamageEvents: true,
+      playerKillXP: 180,
+      playerKillXPPerLevel: 42,
+      playerKillGold: 160,
+      playerKillGoldPerLevel: 28,
+      playerKillResources: 110,
+      playerKillResourcesPerLevel: 18,
+      coreDestroyXP: 220,
+      coreDestroyGold: 220,
+      coreDestroyResources: 180
     }
   },
   abilityScaling: {

@@ -14,6 +14,8 @@ const roomStreams = new Map();
 const ROOM_TTL_MS = 1000 * 60 * 45;
 const PLAYER_STALE_MS = 1000 * 35;
 const MAX_PLAYERS = Math.max(2, Math.min(8, Number(process.env.MAX_PLAYERS || 8)));
+const MAX_ROOM_EVENTS = 240;
+const MAX_EVENT_DAMAGE = 1200;
 
 const mimeTypes = {
   ".css": "text/css; charset=utf-8",
@@ -96,6 +98,7 @@ function publicRoom(room) {
     transport: "server",
     maxPlayers: MAX_PLAYERS,
     settings: sanitizeRoomSettings(cleaned.settings),
+    events: cleaned.events || [],
     createdAt: cleaned.createdAt,
     updatedAt: cleaned.updatedAt,
     startedAt: cleaned.startedAt,
@@ -165,6 +168,98 @@ function upsertPlayer(room, player, state = undefined) {
   room.players.push(payload);
 }
 
+function appendRoomEvents(room, events = [], player = {}) {
+  if (!Array.isArray(events) || events.length === 0) {
+    return;
+  }
+  room.events ||= [];
+  room.nextEventSeq ||= 1;
+  for (const rawEvent of events.slice(0, 24)) {
+    const event = sanitizeCombatEvent(rawEvent, player);
+    if (!event) {
+      continue;
+    }
+    room.events.push({
+      ...event,
+      seq: room.nextEventSeq++,
+      serverTime: Date.now()
+    });
+  }
+  room.events = room.events.slice(-MAX_ROOM_EVENTS);
+}
+
+function sanitizeCombatEvent(rawEvent = {}, player = {}) {
+  const type = String(rawEvent.type || "");
+  if (!["damage", "playerDefeated", "playerEliminated", "coreDestroyed"].includes(type)) {
+    return null;
+  }
+  const id = String(rawEvent.id || `${player.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+    .replace(/[^a-zA-Z0-9_.:-]/g, "")
+    .slice(0, 80);
+  const sourcePlayerId = String(rawEvent.sourcePlayerId || player.id || "").slice(0, 80);
+  if (!sourcePlayerId || sourcePlayerId !== player.id) {
+    return null;
+  }
+  const targetOwnerId = String(rawEvent.targetOwnerId || rawEvent.victimId || "").slice(0, 80);
+  const targetId = String(rawEvent.targetId || "").slice(0, 100);
+  const amount = Math.max(0, Math.min(MAX_EVENT_DAMAGE, Math.round(Number(rawEvent.amount || 0))));
+  const base = {
+    id,
+    type,
+    sourcePlayerId,
+    sourceName: String(rawEvent.sourceName || player.name || "Player").slice(0, 28),
+    timestamp: Number(rawEvent.timestamp || Date.now())
+  };
+  if (type === "damage") {
+    if (!targetOwnerId || !targetId || amount <= 0) {
+      return null;
+    }
+    return {
+      ...base,
+      targetOwnerId,
+      targetId,
+      targetKind: String(rawEvent.targetKind || "player").slice(0, 24),
+      targetType: String(rawEvent.targetType || "").slice(0, 32),
+      amount,
+      sourceKind: "remotePlayer",
+      sourceX: Math.round(Number(rawEvent.sourceX || 0)),
+      sourceY: Math.round(Number(rawEvent.sourceY || 0)),
+      status: sanitizeStatus(rawEvent.status)
+    };
+  }
+  const victimId = String(rawEvent.victimId || targetOwnerId || "").slice(0, 80);
+  const killerId = String(rawEvent.killerId || "").slice(0, 80);
+  if (!targetOwnerId || !victimId || victimId !== player.id || !killerId || killerId === player.id) {
+    return null;
+  }
+  return {
+    ...base,
+    targetOwnerId,
+    targetId,
+    victimId,
+    victimName: String(rawEvent.victimName || "Player").slice(0, 28),
+    victimLevel: Math.max(1, Math.min(99, Math.round(Number(rawEvent.victimLevel || 1)))),
+    killerId,
+    killerName: String(rawEvent.killerName || rawEvent.sourceName || "Player").slice(0, 28),
+    rewardGold: Math.max(0, Math.min(10000, Math.round(Number(rawEvent.rewardGold || 0)))),
+    rewardResources: Math.max(0, Math.min(10000, Math.round(Number(rawEvent.rewardResources || 0)))),
+    rewardXP: Math.max(0, Math.min(10000, Math.round(Number(rawEvent.rewardXP || 0))))
+  };
+}
+
+function sanitizeStatus(status = null) {
+  if (!status || typeof status !== "object") {
+    return null;
+  }
+  const clean = {};
+  for (const key of ["slow", "duration", "stun", "curse", "curseDamagePerSecond", "knockback"]) {
+    if (Number.isFinite(status[key])) {
+      clean[key] = Math.max(0, Math.min(20, Number(status[key])));
+    }
+  }
+  return Object.keys(clean).length > 0 ? clean : null;
+}
+
 function sanitizeRoomSettings(settings = {}) {
   const mapSizes = new Set(["small", "medium", "large"]);
   const worldOptions = settings.worldOptions && typeof settings.worldOptions === "object" ? settings.worldOptions : {};
@@ -204,7 +299,9 @@ async function handleRoomApi(req, reqUrl, res) {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       startedAt: null,
-      players: []
+      players: [],
+      events: [],
+      nextEventSeq: 1
     };
     upsertPlayer(room, player);
     rooms.set(code, room);
@@ -302,6 +399,7 @@ async function handleRoomApi(req, reqUrl, res) {
     if (req.method === "POST" && parts[3] === "state") {
       const body = await readJson(req);
       upsertPlayer(room, body.player, body.state || null);
+      appendRoomEvents(room, body.events, body.player);
       broadcastRoom(room);
       sendJson(res, 200, publicRoom(room));
       return true;

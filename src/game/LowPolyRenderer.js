@@ -1,5 +1,5 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.50";
+import { CONFIG } from "./config.js?v=1.8.51";
 
 const SCALE = 1 / 80;
 const TILE_WORLD_SIZE = 120;
@@ -588,6 +588,13 @@ export class LowPolyRenderer {
         if (!building.alive) continue;
         if (!this.shouldRenderLiveEntity(game, building, building.radius || 44)) continue;
         this.syncBuilding(`ai-${ai.id}-${building.id}`, building, liveIds, ai.color || "#ffb26a");
+      }
+    }
+    for (const remoteBase of game.remoteBases?.values?.() || []) {
+      for (const building of remoteBase.buildings || []) {
+        if (building.alive === false) continue;
+        if (!this.shouldRenderLiveEntity(game, building, building.radius || 44)) continue;
+        this.syncBuilding(`remote-${remoteBase.playerId}-${building.id}`, building, liveIds, "#ffb26a");
       }
     }
     for (const defender of game.baseDefenders || []) {
@@ -2022,7 +2029,6 @@ function disposeObject(object) {
     }
   });
 }
-
 
 
 
