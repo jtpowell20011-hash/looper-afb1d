@@ -1,19 +1,19 @@
 // @ts-check
-import { BaseController } from "./Base.js?v=1.8.55";
-import { AIPlayerController } from "./AIPlayer.js?v=1.8.55";
-import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.55";
-import { CONFIG } from "./config.js?v=1.8.55";
-import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.55";
-import { GameMap } from "./Map.js?v=1.8.55";
-import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.55";
-import { MatchManager } from "./MatchManager.js?v=1.8.55";
-import { Mob } from "./Mob.js?v=1.8.55";
-import { createObjectives } from "./Objective.js?v=1.8.55";
-import { Player } from "./Player.js?v=1.8.55";
-import { RewardSystem } from "./RewardSystem.js?v=1.8.55";
-import { UIManager } from "./UIManager.js?v=1.8.55";
-import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.55";
-import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.55";
+import { BaseController } from "./Base.js?v=1.8.56";
+import { AIPlayerController } from "./AIPlayer.js?v=1.8.56";
+import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.56";
+import { CONFIG } from "./config.js?v=1.8.56";
+import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.56";
+import { GameMap } from "./Map.js?v=1.8.56";
+import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.56";
+import { MatchManager } from "./MatchManager.js?v=1.8.56";
+import { Mob } from "./Mob.js?v=1.8.56";
+import { createObjectives } from "./Objective.js?v=1.8.56";
+import { Player } from "./Player.js?v=1.8.56";
+import { RewardSystem } from "./RewardSystem.js?v=1.8.56";
+import { UIManager } from "./UIManager.js?v=1.8.56";
+import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.56";
+import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.56";
 
 export class GameScene {
   constructor(canvas, options = {}) {
@@ -1817,6 +1817,16 @@ export class GameScene {
     }
   }
 
+  getRespawnSeconds(player = this.player) {
+    const respawn = CONFIG.player || {};
+    const baseSeconds = respawn.respawnBaseSeconds ?? 5;
+    const perLevel = respawn.respawnPerLevelSeconds ?? 1.65;
+    const perPhase = respawn.respawnPhaseSeconds ?? 2;
+    const maxSeconds = respawn.respawnMaxSeconds ?? 60;
+    const level = Math.max(1, player?.level || 1);
+    return Math.min(maxSeconds, Math.ceil(baseSeconds + (level - 1) * perLevel + this.match.phaseIndex * perPhase));
+  }
+
   isEntityStealthed(entity) {
     return Boolean(entity?.stealthUntargetable && (entity.stealthTimer || 0) > 0);
   }
@@ -3461,7 +3471,7 @@ export class GameScene {
       this.addToast(`${ai.name} was eliminated with no active core.`);
       return;
     }
-    aiPlayer.beginRespawn(CONFIG.player.respawnBaseSeconds + this.match.phaseIndex * 2 + Math.floor(aiPlayer.level * 0.55));
+    aiPlayer.beginRespawn(this.getRespawnSeconds(aiPlayer));
   }
 
   handlePlayerDeath() {
@@ -3470,16 +3480,16 @@ export class GameScene {
     }
 
     this.clearQueuedAbility();
-    if (this.multiplayer) {
-      this.enterSpectatorMode("You were defeated. You can keep watching the match or leave the room.");
-      return;
-    }
     if (this.player.consumeExtraLife()) {
       this.addToast("Boss blessing consumed: instant extra life triggered. No loot dropped.");
       this.addFloatingText(this.player.x, this.player.y - 52, "Extra life", "#ffcf5a");
       return;
     }
     const droppedItems = this.dropPlayerHeldLoot(this.player, "Your gear");
+    if (this.multiplayer && !this.base.hasActiveCore) {
+      this.enterSpectatorMode("You were defeated with no active base core. You can keep watching the match or leave the room.");
+      return;
+    }
     if (!this.base.hasActiveCore) {
       this.eliminate("You died while displaced with no active core.");
       return;
@@ -3489,7 +3499,7 @@ export class GameScene {
     const droppedBuild = Math.floor(this.player.resources * 0.18);
     this.player.currency -= droppedGold;
     this.player.resources -= droppedBuild;
-    const deathTimer = CONFIG.player.respawnBaseSeconds + this.match.phaseIndex * 2 + Math.floor(this.player.level * 0.7);
+    const deathTimer = this.getRespawnSeconds(this.player);
     this.player.beginRespawn(deathTimer);
     this.addToast(
       `Hero down. Dropped ${droppedItems} gear item${droppedItems === 1 ? "" : "s"} and ${droppedGold}g/${droppedBuild} build. Respawn in ${formatTime(

@@ -54,6 +54,9 @@ export const CONFIG = Object.freeze({
     baseRegenDelay: 20,
     baseRegenPercentPerSecond: 0.045,
     respawnBaseSeconds: 5,
+    respawnPerLevelSeconds: 1.65,
+    respawnPhaseSeconds: 2,
+    respawnMaxSeconds: 60,
     xpBase: 100
   },
   phases: [

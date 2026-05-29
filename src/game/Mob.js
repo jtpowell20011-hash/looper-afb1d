@@ -1,8 +1,8 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.55";
-import { Entity } from "./Entity.js?v=1.8.55";
-import { clamp, distance, normalize, randRange } from "./math.js?v=1.8.55";
-import { DamageTracker } from "./RewardSystem.js?v=1.8.55";
+import { CONFIG } from "./config.js?v=1.8.56";
+import { Entity } from "./Entity.js?v=1.8.56";
+import { clamp, distance, normalize, randRange } from "./math.js?v=1.8.56";
+import { DamageTracker } from "./RewardSystem.js?v=1.8.56";
 
 export class Mob extends Entity {
   constructor({
