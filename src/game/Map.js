@@ -1,5 +1,5 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.43";
+import { CONFIG } from "./config.js?v=1.8.50";
 
 const BASE_WORLD = { width: 16800, height: 12600 };
 
@@ -143,8 +143,9 @@ export class GameMap {
         };
         const tooCloseToBridge = this.bridges.some((bridge) => Math.hypot(candidate.x - bridge.x, candidate.y - bridge.y) < (CONFIG.mapGeneration?.bridgeCampExclusion || 520));
         const tooCloseToCamp = [...shifted, ...extras].some((camp) => Math.hypot(candidate.x - camp.x, candidate.y - camp.y) < (CONFIG.mapGeneration?.majorCampSpacing || 680));
+        const tooCloseToRoad = distanceToPathNetwork(candidate, this.paths || []) < 110;
         const inRiver = this.isRiverBlocked(candidate, 180);
-        if (!tooCloseToBridge && !tooCloseToCamp && !inRiver) {
+        if (!tooCloseToBridge && !tooCloseToCamp && !tooCloseToRoad && !inRiver) {
           point = candidate;
           break;
         }
@@ -166,6 +167,7 @@ export class GameMap {
         level: campLevelFor(zone.type, tier),
         maxMobs: tierConfig.maxMobs,
         respawn: tierConfig.respawn,
+        clearRespawn: tierConfig.clearRespawn,
         variants: CONFIG.campTypes[campType]?.variants || (tier >= 3 ? ["tank", "summoner", "ranged", "skitter"] : tier === 2 ? ["brute", "ranged", "swift", "summoner"] : ["melee", "ranged", "skitter", "swift"])
       });
     }
@@ -177,14 +179,16 @@ export class GameMap {
     const count = this.sizeConfig.minorCampCount || 0;
     const camps = [];
     const spacing = CONFIG.mapGeneration?.minorCampSpacing || 520;
+    const openFieldRatio = CONFIG.mapGeneration?.openFieldCampRatio ?? 0.45;
     const candidateZones = this.zones.filter((zone) => zone.type !== "boss" && zone.type !== "danger");
     for (let index = 0; index < count; index += 1) {
       let point = null;
       let zone = candidateZones[Math.floor(Math.random() * candidateZones.length)] || this.zones[0];
       for (let attempt = 0; attempt < 45; attempt += 1) {
         zone = candidateZones[Math.floor(Math.random() * candidateZones.length)] || zone;
+        const useOpenField = Math.random() < openFieldRatio;
         const nearPath = this.paths[Math.floor(Math.random() * Math.max(1, this.paths.length))];
-        const anchor = nearPath?.length ? pointOnPolyline(nearPath, Math.random()) : null;
+        const anchor = !useOpenField && nearPath?.length ? pointOnPolyline(nearPath, Math.random()) : null;
         const candidate = anchor
           ? {
               x: anchor.x + randomRange(-520, 520),
@@ -198,7 +202,12 @@ export class GameMap {
         candidate.y = clampNumber(candidate.y, 360, CONFIG.world.height - 360);
         const tooCloseToBridge = this.bridges.some((bridge) => Math.hypot(candidate.x - bridge.x, candidate.y - bridge.y) < 360);
         const tooCloseToCamp = [...existingCamps, ...camps].some((camp) => Math.hypot(candidate.x - camp.x, candidate.y - camp.y) < spacing);
-        if (!tooCloseToBridge && !tooCloseToCamp && !this.isRiverBlocked(candidate, 180)) {
+        const tooCloseToTower = (this.neutralTowers || []).some((tower) => Math.hypot(candidate.x - tower.x, candidate.y - tower.y) < 520);
+        const tooCloseToVillage = (this.villages || []).some((village) => Math.hypot(candidate.x - village.x, candidate.y - village.y) < village.radius + 260);
+        const tooCloseToObjectiveZone = this.zones.some((entry) => entry.type === "boss" && pointInsideZone(candidate, entry, 380));
+        const roadDistance = distanceToPathNetwork(candidate, this.paths || []);
+        const tooCloseToRoad = roadDistance < (useOpenField ? 220 : 96);
+        if (!tooCloseToBridge && !tooCloseToCamp && !tooCloseToTower && !tooCloseToVillage && !tooCloseToObjectiveZone && !tooCloseToRoad && !this.isRiverBlocked(candidate, 180)) {
           point = candidate;
           break;
         }
@@ -206,21 +215,24 @@ export class GameMap {
       if (!point) {
         continue;
       }
-      const campType = Math.random() < 0.55 ? "goblin" : "rogue";
+      const zoneType = this.zoneForPoint(point)?.type || "wild";
+      const tier = zoneType === "mountain" || zoneType === "ruins" || zoneType === "relic" ? 2 : 1;
+      const campType = tier >= 2 ? campTypeForZone(zoneType, tier) : Math.random() < 0.55 ? "goblin" : "rogue";
       camps.push({
         id: `camp-minor-${index + 1}`,
         x: point.x,
         y: point.y,
-        tier: 1,
+        tier,
         minor: true,
-        zoneType: this.zoneForPoint(point)?.type || "wild",
+        zoneType,
         zoneLabel: this.zoneForPoint(point)?.label || "Wild Road",
         campType,
-        campLabel: `Minor ${CONFIG.campTypes[campType]?.label || "Camp"}`,
-        level: 1,
-        maxMobs: 2,
-        respawn: 12,
-        variants: campType === "rogue" ? ["swift", "ranged"] : ["melee", "skitter"]
+        campLabel: `${tier >= 2 ? "Trail" : "Minor"} ${CONFIG.campTypes[campType]?.label || "Camp"}`,
+        level: tier === 2 ? 3 : 1,
+        maxMobs: tier === 2 ? 3 : 2,
+        respawn: tier === 2 ? Math.round((CONFIG.mapGeneration?.minorCampRespawn || 26) * 1.25) : CONFIG.mapGeneration?.minorCampRespawn || 26,
+        clearRespawn: tier === 2 ? Math.round((CONFIG.mapGeneration?.minorCampClearRespawn || 46) * 1.25) : CONFIG.mapGeneration?.minorCampClearRespawn || 46,
+        variants: tier >= 2 ? CONFIG.campTypes[campType]?.variants || ["brute", "ranged", "swift"] : campType === "rogue" ? ["swift", "ranged"] : ["melee", "skitter"]
       });
     }
     return camps;
@@ -354,12 +366,29 @@ export class GameMap {
       "boss-center": { x: 0.5, y: 0.5 }
     };
     const anchor = anchors[config.id] || { x: 0.5, y: 0.5 };
-    const x = zone.x + zone.w * anchor.x + randomRange(-zone.w * 0.12, zone.w * 0.12);
-    const y = zone.y + zone.h * anchor.y + randomRange(-zone.h * 0.12, zone.h * 0.12);
+    let point = null;
+    for (let attempt = 0; attempt < 18; attempt += 1) {
+      const candidate = {
+        x: zone.x + zone.w * anchor.x + randomRange(-zone.w * 0.16, zone.w * 0.16),
+        y: zone.y + zone.h * anchor.y + randomRange(-zone.h * 0.16, zone.h * 0.16)
+      };
+      candidate.x = clampNumber(candidate.x, zone.x + 180, zone.x + zone.w - 180);
+      candidate.y = clampNumber(candidate.y, zone.y + 180, zone.y + zone.h - 180);
+      const tooCloseToBridge = this.bridges.some((bridge) => Math.hypot(candidate.x - bridge.x, candidate.y - bridge.y) < 360);
+      const blockedByRiver = this.isRiverBlocked(candidate, config.radius + 120);
+      if (!tooCloseToBridge && !blockedByRiver) {
+        point = candidate;
+        break;
+      }
+    }
+    point ||= {
+      x: clampNumber(zone.x + zone.w * anchor.x, zone.x + 180, zone.x + zone.w - 180),
+      y: clampNumber(zone.y + zone.h * anchor.y, zone.y + 180, zone.y + zone.h - 180)
+    };
     return {
       ...config,
-      x: clampNumber(x, zone.x + 140, zone.x + zone.w - 140),
-      y: clampNumber(y, zone.y + 140, zone.y + zone.h - 140),
+      x: point.x,
+      y: point.y,
       guardianBounds: { x: zone.x + 80, y: zone.y + 80, w: zone.w - 160, h: zone.h - 160 }
     };
   }
@@ -684,7 +713,7 @@ function clampNumber(value, min, max) {
 
 function drawGrassTexture(ctx) {
   ctx.save();
-  ctx.strokeStyle = "rgba(255,244,207,0.035)";
+  ctx.strokeStyle = "rgba(255,244,207,0.032)";
   ctx.lineWidth = 1;
   for (let x = 0; x <= CONFIG.world.width; x += 240) {
     ctx.beginPath();
@@ -704,6 +733,13 @@ function drawGrassTexture(ctx) {
       ctx.fillRect(x + ((x * 17 + y) % 90), y + ((y * 13 + x) % 70), 30, 8);
     }
   }
+  ctx.fillStyle = "rgba(108, 168, 72, 0.12)";
+  for (let x = 40; x < CONFIG.world.width; x += 520) {
+    for (let y = 30; y < CONFIG.world.height; y += 470) {
+      ctx.fillRect(x + ((x * 11 + y) % 120), y + ((y * 7 + x) % 100), 12, 34);
+      ctx.fillRect(x + 18 + ((x * 5 + y) % 90), y + 10 + ((y * 3 + x) % 80), 8, 22);
+    }
+  }
   ctx.restore();
 }
 
@@ -711,12 +747,16 @@ function drawPaths(ctx, paths) {
   ctx.save();
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
+  const roadWidth = CONFIG.mapGeneration?.roadWidth || 92;
   for (const path of paths) {
-    ctx.strokeStyle = "#7b684e";
-    ctx.lineWidth = 70;
+    ctx.strokeStyle = "#705d42";
+    ctx.lineWidth = roadWidth;
     drawPolyline(ctx, path);
-    ctx.strokeStyle = "#9a815d";
-    ctx.lineWidth = 48;
+    ctx.strokeStyle = "#a48654";
+    ctx.lineWidth = roadWidth * 0.68;
+    drawPolyline(ctx, path);
+    ctx.strokeStyle = "rgba(238, 204, 128, 0.16)";
+    ctx.lineWidth = Math.max(5, roadWidth * 0.08);
     drawPolyline(ctx, path);
   }
   ctx.restore();

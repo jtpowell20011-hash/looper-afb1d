@@ -7,15 +7,13 @@ const dist = path.join(projectRoot, "dist");
 
 await rm(dist, { recursive: true, force: true });
 await mkdir(path.join(dist, "src"), { recursive: true });
-await mkdir(path.join(dist, "assets"), { recursive: true });
 
 const files = [
   ["index.html", "index.html"],
   ["styles.css", "styles.css"],
   ["manifest.webmanifest", "manifest.webmanifest"],
   ["sw.js", "sw.js"],
-  ["src/main.js", "src/main.js"],
-  ["assets/app-icon.svg", "assets/app-icon.svg"]
+  ["src/main.js", "src/main.js"]
 ];
 
 for (const [from, to] of files) {
@@ -23,6 +21,7 @@ for (const [from, to] of files) {
 }
 
 await cp(path.join(projectRoot, "src/game"), path.join(dist, "src/game"), { recursive: true });
+await cp(path.join(projectRoot, "assets"), path.join(dist, "assets"), { recursive: true });
 
 await writeFile(
   path.join(dist, "_headers"),

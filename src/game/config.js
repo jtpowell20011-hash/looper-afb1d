@@ -17,8 +17,8 @@ export const CONFIG = Object.freeze({
       label: "Small",
       width: 8400,
       height: 6300,
-      campDensity: 0.55,
-      minorCampCount: 14,
+      campDensity: 0.7,
+      minorCampCount: 28,
       treeCount: 72,
       rockCount: 34
     },
@@ -26,8 +26,8 @@ export const CONFIG = Object.freeze({
       label: "Medium",
       width: 16800,
       height: 12600,
-      campDensity: 1,
-      minorCampCount: 26,
+      campDensity: 1.25,
+      minorCampCount: 62,
       treeCount: 138,
       rockCount: 66
     },
@@ -35,8 +35,8 @@ export const CONFIG = Object.freeze({
       label: "Large",
       width: 33600,
       height: 25200,
-      campDensity: 1.65,
-      minorCampCount: 54,
+      campDensity: 2.05,
+      minorCampCount: 130,
       treeCount: 300,
       rockCount: 140
     }
@@ -47,6 +47,10 @@ export const CONFIG = Object.freeze({
     moveSpeed: 252,
     acceleration: 2050,
     friction: 9.5,
+    statTuning: {
+      moveSpeedMultiplier: 1.07,
+      healthMultiplier: 1.65
+    },
     baseRegenDelay: 20,
     baseRegenPercentPerSecond: 0.045,
     respawnBaseSeconds: 5,
@@ -56,7 +60,7 @@ export const CONFIG = Object.freeze({
     {
       id: "exploration",
       label: "Exploration",
-      duration: 300,
+      duration: 600,
       canPlaceBase: true,
       description: "Scout terrain, farm early camps, and claim an opening base site."
     },
@@ -143,6 +147,29 @@ export const CONFIG = Object.freeze({
     attackCooldown: 1.15,
     waveInterval: 20
   },
+  economy: {
+    mobRewards: {
+      xpMultiplier: 1.12,
+      goldMultiplier: 1.65,
+      resourceMultiplier: 2.05,
+      tierGoldBonus: 6,
+      tierResourceBonus: 5,
+      levelXpScale: 0.035,
+      levelGoldScale: 0.055,
+      levelResourceScale: 0.065,
+      minorCampRewardMultiplier: 0.82,
+      zoneMultipliers: {
+        forest: 1,
+        river: 1.08,
+        mountain: 1.18,
+        relic: 1.22,
+        ruins: 1.32,
+        danger: 1.45,
+        boss: 1.5,
+        wild: 1
+      }
+    }
+  },
   ai: {
     thinkIntervalMin: 0.6,
     thinkIntervalMax: 1.6,
@@ -173,7 +200,10 @@ export const CONFIG = Object.freeze({
       max: 90,
       life: 1.05,
       riseSpeed: 34,
-      spread: 22
+      spread: 22,
+      textFontSize: 20,
+      hitFontSize: 24,
+      labelScale: 1.18
     },
     meleeStructure: {
       guardian: { structureDamage: 1.45, closeTowerDamageTaken: 0.72 },
@@ -231,11 +261,14 @@ export const CONFIG = Object.freeze({
     }
   },
   mapGeneration: {
-    majorCampBaseCount: 18,
-    minorCampSpacing: 520,
+    majorCampBaseCount: 24,
+    minorCampSpacing: 440,
+    openFieldCampRatio: 0.54,
+    minorCampRespawn: 26,
+    minorCampClearRespawn: 46,
     majorCampSpacing: 680,
     bridgeCampExclusion: 520,
-    roadWidth: 70,
+    roadWidth: 92,
     ambushClueRadius: 58,
     neutralTowerBaseExclusion: 860,
     villageBaseExclusion: 520,
@@ -249,7 +282,10 @@ export const CONFIG = Object.freeze({
     highRiskDelta: 3,
     dangerousDelta: 2,
     safeDelta: -2,
-    updateHz: 4
+    updateHz: 4,
+    badgeFontSize: 13,
+    badgeHeight: 24,
+    badgePaddingX: 18
   },
   neutralTowers: {
     basePlacementExclusion: 860,
@@ -297,10 +333,10 @@ export const CONFIG = Object.freeze({
     propDensity: 7
   },
   campTiers: {
-    1: { label: "Tier 1", maxMobs: 3, respawn: 18, rewardScale: 1 },
-    2: { label: "Tier 2", maxMobs: 4, respawn: 23, rewardScale: 1.35 },
-    3: { label: "Tier 3", maxMobs: 5, respawn: 30, rewardScale: 1.75 },
-    elite: { label: "Elite", maxMobs: 6, respawn: 42, rewardScale: 2.2 }
+    1: { label: "Tier 1", maxMobs: 3, respawn: 30, clearRespawn: 48, rewardScale: 1 },
+    2: { label: "Tier 2", maxMobs: 4, respawn: 40, clearRespawn: 64, rewardScale: 1.35 },
+    3: { label: "Tier 3", maxMobs: 5, respawn: 52, clearRespawn: 84, rewardScale: 1.75 },
+    elite: { label: "Elite", maxMobs: 6, respawn: 68, clearRespawn: 104, rewardScale: 2.2 }
   },
   campTypes: {
     goblin: { label: "Goblin Camp", zones: ["forest", "river"], variants: ["melee", "swift", "ranged"], reward: "building resources" },
@@ -387,6 +423,15 @@ export const CONFIG = Object.freeze({
     maxReplots: 3,
     passiveRepairDelay: 60,
     passiveRepairPercentPerSecond: 0.015,
+    recovery: {
+      enabled: true,
+      noDamageSeconds: 30,
+      underAttackGraceSeconds: 8,
+      restoreInterval: 2.5,
+      maxRestoredPerPulse: 1,
+      restoredHealthRatio: 0.68,
+      eligibleTypes: ["wall", "tower", "ballista", "pulseTower", "generator", "barracks"]
+    },
     wallSpacing: {
       starterRadiusX: 356,
       starterRadiusY: 292,
@@ -694,7 +739,7 @@ export const CONFIG = Object.freeze({
     }
   ],
   objectiveRules: {
-    captureRadiusBonus: 58,
+    captureRadiusBonus: 92,
     leash: {
       engagePadding: 92,
       returnSpeed: 310,
@@ -702,7 +747,10 @@ export const CONFIG = Object.freeze({
       resetDistance: 42,
       fullResetAtHome: false,
       arenaDamagePadding: 0,
-      damageGracePadding: 120
+      damageGracePadding: 120,
+      guardianMoveSpeedScale: 0.72,
+      guardianOrbitSpeedScale: 0.74,
+      bossMoveSpeedScale: 0.84
     }
   },
   camps: [

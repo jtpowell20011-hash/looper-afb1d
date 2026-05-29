@@ -1,9 +1,9 @@
 // @ts-check
-import { AbilityBook } from "./Ability.js?v=1.8.43";
-import { getCharacterClass } from "./CharacterClasses.js?v=1.8.43";
-import { CONFIG } from "./config.js?v=1.8.43";
-import { Entity } from "./Entity.js?v=1.8.43";
-import { clamp, normalize } from "./math.js?v=1.8.43";
+import { AbilityBook } from "./Ability.js?v=1.8.50";
+import { getCharacterClass } from "./CharacterClasses.js?v=1.8.50";
+import { CONFIG } from "./config.js?v=1.8.50";
+import { Entity } from "./Entity.js?v=1.8.50";
+import { clamp, normalize } from "./math.js?v=1.8.50";
 
 export class Player extends Entity {
   constructor(x, y, characterId = "ranger") {
@@ -13,13 +13,13 @@ export class Player extends Entity {
       x,
       y,
       radius: CONFIG.player.radius,
-      maxHealth: characterClass.stats.health,
+      maxHealth: tunedHealth(characterClass.stats),
       team: "player"
     });
     this.characterId = characterClass.id;
     this.characterClass = characterClass;
     this.heroClass = characterClass;
-    this.speed = characterClass.stats.moveSpeed;
+    this.speed = tunedMoveSpeed(characterClass.stats);
     this.color = characterClass.color;
     this.vx = 0;
     this.vy = 0;
@@ -92,8 +92,8 @@ export class Player extends Entity {
     this.characterId = characterClass.id;
     this.characterClass = characterClass;
     this.heroClass = characterClass;
-    this.maxHealth = characterClass.stats.health;
-    this.speed = characterClass.stats.moveSpeed;
+    this.maxHealth = tunedHealth(characterClass.stats);
+    this.speed = tunedMoveSpeed(characterClass.stats);
     this.color = characterClass.color;
     this.abilityBook.setCharacter(characterClass.id);
     this.health = Math.max(1, Math.round(this.effectiveMaxHealth * Math.min(1, healthRatio)));
@@ -638,6 +638,16 @@ export class Player extends Entity {
     this.health += healed;
     return healed;
   }
+}
+
+function tunedHealth(stats) {
+  const tuning = CONFIG.player.statTuning || {};
+  return Math.round((stats.health || CONFIG.player.maxHealth) * (tuning.healthMultiplier || 1) + (tuning.healthBonus || 0));
+}
+
+function tunedMoveSpeed(stats) {
+  const tuning = CONFIG.player.statTuning || {};
+  return Math.round((stats.moveSpeed || CONFIG.player.moveSpeed) * (tuning.moveSpeedMultiplier || 1) + (tuning.moveSpeedBonus || 0));
 }
 
 

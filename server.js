@@ -13,6 +13,7 @@ const rooms = new Map();
 const roomStreams = new Map();
 const ROOM_TTL_MS = 1000 * 60 * 45;
 const PLAYER_STALE_MS = 1000 * 35;
+const MAX_PLAYERS = Math.max(2, Math.min(8, Number(process.env.MAX_PLAYERS || 8)));
 
 const mimeTypes = {
   ".css": "text/css; charset=utf-8",
@@ -77,7 +78,7 @@ function cleanRoom(room) {
   const now = Date.now();
   room.players = room.players
     .filter((player) => player.id === room.hostId || now - player.lastSeen < PLAYER_STALE_MS)
-    .slice(0, 2)
+    .slice(0, MAX_PLAYERS)
     .map((player) => ({
       ...player,
       isHost: player.id === room.hostId
@@ -93,6 +94,8 @@ function publicRoom(room) {
     hostId: cleaned.hostId,
     status: cleaned.status,
     transport: "server",
+    maxPlayers: MAX_PLAYERS,
+    settings: sanitizeRoomSettings(cleaned.settings),
     createdAt: cleaned.createdAt,
     updatedAt: cleaned.updatedAt,
     startedAt: cleaned.startedAt,
@@ -156,10 +159,30 @@ function upsertPlayer(room, player, state = undefined) {
     room.players[existingIndex] = payload;
     return;
   }
-  if (room.players.length >= 2) {
+  if (room.players.length >= MAX_PLAYERS) {
     throw new Error("room_full");
   }
   room.players.push(payload);
+}
+
+function sanitizeRoomSettings(settings = {}) {
+  const mapSizes = new Set(["small", "medium", "large"]);
+  const worldOptions = settings.worldOptions && typeof settings.worldOptions === "object" ? settings.worldOptions : {};
+  const seed = String(settings.worldSeed || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 32);
+  return {
+    mapSize: mapSizes.has(settings.mapSize) ? settings.mapSize : "large",
+    worldSeed: seed || makeWorldSeed(),
+    worldOptions: {
+      bosses: worldOptions.bosses !== false,
+      towers: worldOptions.towers !== false,
+      villages: worldOptions.villages !== false
+    },
+    maxPlayers: MAX_PLAYERS
+  };
+}
+
+function makeWorldSeed() {
+  return `bb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 async function handleRoomApi(req, reqUrl, res) {
@@ -177,6 +200,7 @@ async function handleRoomApi(req, reqUrl, res) {
       code,
       hostId: player.id,
       status: "lobby",
+      settings: sanitizeRoomSettings(body.settings),
       createdAt: Date.now(),
       updatedAt: Date.now(),
       startedAt: null,
@@ -267,6 +291,7 @@ async function handleRoomApi(req, reqUrl, res) {
         sendJson(res, 403, { error: "host_only" });
         return true;
       }
+      room.settings = sanitizeRoomSettings({ ...room.settings, ...(body.settings || {}) });
       room.status = "started";
       room.startedAt = Date.now();
       broadcastRoom(room);
@@ -409,7 +434,7 @@ function getNetworkInfo(req) {
     multiplayer: {
       roomApi: true,
       realtime: true,
-      maxPlayers: 2,
+      maxPlayers: MAX_PLAYERS,
       transport: "server-sent-events"
     }
   };

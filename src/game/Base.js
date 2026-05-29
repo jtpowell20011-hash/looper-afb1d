@@ -1,7 +1,7 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.43";
-import { Entity } from "./Entity.js?v=1.8.43";
-import { distance, randRange } from "./math.js?v=1.8.43";
+import { CONFIG } from "./config.js?v=1.8.50";
+import { Entity } from "./Entity.js?v=1.8.50";
+import { distance, randRange } from "./math.js?v=1.8.50";
 
 const BUILDING_RADIUS = {
   core: 34,
@@ -104,6 +104,8 @@ export class BaseController {
     this.wallHealthLevel = 1;
     this.layoutId = "outpost";
     this.visionBonus = 0;
+    this.structureRecoveryTimer = 0;
+    this.lastRecoveryNoticeAt = 0;
   }
 
   get core() {
@@ -132,6 +134,8 @@ export class BaseController {
     this.emergencyTimer = 0;
     this.origin = { x, y };
     this.layoutId = nextLayoutId;
+    this.structureRecoveryTimer = 0;
+    this.lastRecoveryNoticeAt = 0;
     this.expandedCoreLevels = new Set();
     this.wallHealthLevel = preserveSnapshot?.wallHealthLevel || 1;
     this.visionBonus = CONFIG.base.layouts[nextLayoutId]?.baseVisionBonus || 0;
@@ -386,11 +390,15 @@ export class BaseController {
   }
 
   updatePassiveRepairs(dt, scene = null) {
+    for (const building of this.buildings) {
+      building.timeSinceDamage = Math.min(Math.max(CONFIG.base.passiveRepairDelay, CONFIG.base.recovery?.noDamageSeconds || 30) + 10, (building.timeSinceDamage || 0) + dt);
+    }
+    this.updateDestroyedStructureRecovery(dt, scene);
+
     for (const building of this.livingBuildings) {
       if (!isDefenseType(building.type)) {
         continue;
       }
-      building.timeSinceDamage = Math.min(CONFIG.base.passiveRepairDelay + 10, (building.timeSinceDamage || 0) + dt);
       if (building.timeSinceDamage < CONFIG.base.passiveRepairDelay || building.health >= building.maxHealth) {
         continue;
       }
@@ -406,6 +414,65 @@ export class BaseController {
           radius: building.radius + 8,
           life: 0.45,
           maxLife: 0.45
+        });
+      }
+    }
+  }
+
+  updateDestroyedStructureRecovery(dt, scene = null) {
+    const config = CONFIG.base.recovery || {};
+    if (!config.enabled) {
+      return;
+    }
+    const core = this.core;
+    if (!this.active || !core || !core.alive) {
+      this.structureRecoveryTimer = 0;
+      return;
+    }
+    const noDamageSeconds = config.noDamageSeconds || 30;
+    if ((core.timeSinceDamage || 0) < noDamageSeconds) {
+      this.structureRecoveryTimer = 0;
+      return;
+    }
+    const underAttackGrace = config.underAttackGraceSeconds || 0;
+    const recentlyDamaged = this.buildings.some((building) => building.type !== "core" && (building.timeSinceDamage || 0) < underAttackGrace);
+    if (recentlyDamaged) {
+      this.structureRecoveryTimer = 0;
+      return;
+    }
+    const eligibleTypes = new Set(config.eligibleTypes || ["wall", "tower", "ballista", "pulseTower", "generator", "barracks"]);
+    const destroyed = this.buildings
+      .filter((building) => building.type !== "core" && !building.alive && eligibleTypes.has(building.type))
+      .sort((a, b) => (a.layer || 1) - (b.layer || 1) || a.type.localeCompare(b.type));
+    if (destroyed.length === 0) {
+      this.structureRecoveryTimer = 0;
+      return;
+    }
+    this.structureRecoveryTimer += dt;
+    if (this.structureRecoveryTimer < (config.restoreInterval || 2.5)) {
+      return;
+    }
+    this.structureRecoveryTimer = 0;
+    const count = Math.max(1, config.maxRestoredPerPulse || 1);
+    const restored = destroyed.slice(0, count);
+    for (const building of restored) {
+      building.alive = true;
+      building.health = Math.max(1, Math.round(building.maxHealth * (config.restoredHealthRatio || 0.65)));
+      building.timeSinceDamage = CONFIG.base.passiveRepairDelay;
+    }
+    this.resolveInvalidBuildingPlacements(restored.filter((building) => building.type !== "wall"));
+    if (scene && scene.base === this) {
+      scene.addToast?.(`Base recovering: restored ${restored.length} structure${restored.length === 1 ? "" : "s"} at partial health.`);
+      for (const building of restored) {
+        scene.addFloatingText?.(building.x, building.y - 38, "Restored", "#63d46b");
+        scene.spawnBaseEffect?.({
+          type: "pulse",
+          x: building.x,
+          y: building.y,
+          color: "#63d46b",
+          radius: (building.radius || 24) + 18,
+          life: 0.65,
+          maxLife: 0.65
         });
       }
     }

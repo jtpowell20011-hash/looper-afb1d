@@ -1,7 +1,7 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.43";
-import { labelForKeyCode } from "./InputBindings.js?v=1.8.43";
-import { formatTime } from "./math.js?v=1.8.43";
+import { CONFIG } from "./config.js?v=1.8.50";
+import { labelForKeyCode } from "./InputBindings.js?v=1.8.50";
+import { formatTime } from "./math.js?v=1.8.50";
 
 export class UIManager {
   constructor(callbacks) {
@@ -9,6 +9,7 @@ export class UIManager {
     this.activeTab = "loadout";
     this.draggedLootId = null;
     this.upgradeFilter = null;
+    this.quickBuildingId = null;
     this.selectedSlotId = CONFIG.loot.equipmentSlots[0]?.id || null;
     this.els = {
       lootPanelButton: byId("lootPanelButton"),
@@ -103,6 +104,14 @@ export class UIManager {
       targetInfoMeta: byId("targetInfoMeta"),
       targetInfoHealthBar: byId("targetInfoHealthBar"),
       targetInfoHealthText: byId("targetInfoHealthText"),
+      baseQuickMenu: byId("baseQuickMenu"),
+      quickBuildingTitle: byId("quickBuildingTitle"),
+      quickBuildingMeta: byId("quickBuildingMeta"),
+      quickBuildingHealthBar: byId("quickBuildingHealthBar"),
+      quickBuildingCostText: byId("quickBuildingCostText"),
+      quickBuildingUpgradeButton: byId("quickBuildingUpgradeButton"),
+      quickBuildingOpenButton: byId("quickBuildingOpenButton"),
+      quickBuildingCloseButton: byId("quickBuildingCloseButton"),
       recallCastPanel: byId("recallCastPanel"),
       recallCastBar: byId("recallCastBar"),
       recallCastText: byId("recallCastText"),
@@ -172,6 +181,17 @@ export class UIManager {
     this.els.abilitySkillshot.addEventListener("click", () => this.callbacks.toggleAbility("skillshot"));
     this.els.abilityArea.addEventListener("click", () => this.callbacks.toggleAbility("area"));
     this.els.abilityUltimate.addEventListener("click", () => this.callbacks.toggleAbility("ultimate"));
+    this.els.quickBuildingUpgradeButton.addEventListener("click", () => {
+      if (this.quickBuildingId) {
+        this.callbacks.quickUpgradeBuilding(this.quickBuildingId);
+      }
+    });
+    this.els.quickBuildingOpenButton.addEventListener("click", () => {
+      if (this.quickBuildingId) {
+        this.callbacks.openBuildingUpgradeList(this.quickBuildingId);
+      }
+    });
+    this.els.quickBuildingCloseButton.addEventListener("click", () => this.closeBuildingQuickMenu());
     this.els.buildingUpgradeList.addEventListener("click", (event) => {
       const target = event.target.closest("[data-upgrade-building-id]");
       if (target) {
@@ -393,6 +413,87 @@ export class UIManager {
     this.renderLoadout(player, scene);
     this.renderProgression(player);
     this.renderShop(scene);
+    this.renderBuildingQuickMenu(scene);
+  }
+
+  openBuildingQuickMenu(building, scene) {
+    if (!building) {
+      return;
+    }
+    this.quickBuildingId = building.id;
+    this.quickBuildingAnchor = {
+      x: scene.input?.mouseScreen?.x || window.innerWidth * 0.5,
+      y: scene.input?.mouseScreen?.y || window.innerHeight * 0.5
+    };
+    this.els.baseQuickMenu.hidden = false;
+    this.renderBuildingQuickMenu(scene);
+  }
+
+  closeBuildingQuickMenu() {
+    this.quickBuildingId = null;
+    this.quickBuildingAnchor = null;
+    this.els.baseQuickMenu.hidden = true;
+  }
+
+  renderBuildingQuickMenu(scene) {
+    if (this.els.baseQuickMenu.hidden || !this.quickBuildingId) {
+      return;
+    }
+    const building = scene.base.livingBuildings.find((candidate) => candidate.id === this.quickBuildingId);
+    if (!building) {
+      this.closeBuildingQuickMenu();
+      return;
+    }
+    const info = scene.base.getUpgradeInfoById(building.id);
+    const nearCore = scene.isPlayerNearCore();
+    const isWall = building.type === "wall";
+    const wallInfo = isWall ? scene.base.getWallHealthUpgradeInfo() : null;
+    const healthRatio = Math.max(0, Math.min(1, building.healthRatio || 0));
+    this.els.quickBuildingTitle.textContent = `${building.label || labelize(building.type)} L${building.level}`;
+    this.els.quickBuildingMeta.textContent = `${labelize(building.type)} / ${Math.ceil(building.health)} of ${building.maxHealth} HP`;
+    this.els.quickBuildingHealthBar.style.width = `${healthRatio * 100}%`;
+    if (isWall) {
+      this.els.quickBuildingCostText.textContent = wallInfo?.canUpgrade
+        ? `Wall Health T${wallInfo.nextLevel}: ${wallInfo.cost.gold}g/${wallInfo.cost.resources}b`
+        : `Wall Health T${wallInfo?.level || 1}: maxed`;
+      this.els.quickBuildingUpgradeButton.textContent = "Wall Health +";
+      this.els.quickBuildingUpgradeButton.disabled =
+        !nearCore ||
+        !wallInfo?.canUpgrade ||
+        scene.player.currency < wallInfo.cost.gold ||
+        scene.player.resources < wallInfo.cost.resources;
+    } else if (info) {
+      this.els.quickBuildingCostText.textContent = info.levelCapped
+        ? `Requires Core above L${building.level}`
+        : info.canFitEnergy
+          ? `Upgrade: ${info.cost.gold}g/${info.cost.resources}b${info.addedEnergy ? ` / +${info.addedEnergy} energy` : ""}`
+          : "Upgrade would exceed base energy";
+      this.els.quickBuildingUpgradeButton.textContent = `${building.type === "core" ? "Core" : building.label} +`;
+      this.els.quickBuildingUpgradeButton.disabled =
+        !nearCore ||
+        info.levelCapped ||
+        !info.canFitEnergy ||
+        scene.player.currency < info.cost.gold ||
+        scene.player.resources < info.cost.resources;
+    } else {
+      this.els.quickBuildingCostText.textContent = "No direct upgrade available.";
+      this.els.quickBuildingUpgradeButton.textContent = "Upgrade";
+      this.els.quickBuildingUpgradeButton.disabled = true;
+    }
+    this.els.quickBuildingOpenButton.disabled = !scene.base.active;
+    this.positionBaseQuickMenu(scene);
+  }
+
+  positionBaseQuickMenu(scene) {
+    const menu = this.els.baseQuickMenu;
+    const margin = 14;
+    const width = menu.offsetWidth || 286;
+    const height = menu.offsetHeight || 150;
+    const anchor = this.quickBuildingAnchor || scene.input.mouseScreen || { x: window.innerWidth * 0.5, y: window.innerHeight * 0.5 };
+    const x = Math.max(margin, Math.min(window.innerWidth - width - margin, anchor.x + 18));
+    const y = Math.max(78, Math.min(window.innerHeight - height - margin, anchor.y + 18));
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
   }
 
   renderRecall(scene) {
@@ -515,7 +616,9 @@ export class UIManager {
                   : "Enemy"
                 : objective.progress > 0
                   ? `${Math.round(objective.progressRatio * 100)}%`
-                  : "Claim";
+                  : objective.captureReady
+                    ? "Capture Ready"
+                    : "Claim";
         return `<div class="objective-item"><div><strong>${objective.label}</strong><span>${objective.reward}</span></div><em style="color:${riskColorText(scene.player.level, targetLevel)}">${status}</em></div>`;
         }),
         ...towerItems,

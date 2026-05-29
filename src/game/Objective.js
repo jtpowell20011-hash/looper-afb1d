@@ -1,7 +1,7 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.43";
-import { distance } from "./math.js?v=1.8.43";
-import { DamageTracker } from "./RewardSystem.js?v=1.8.43";
+import { CONFIG } from "./config.js?v=1.8.50";
+import { distance } from "./math.js?v=1.8.50";
+import { DamageTracker } from "./RewardSystem.js?v=1.8.50";
 
 export class Objective {
   constructor(config) {
@@ -24,6 +24,7 @@ export class Objective {
     this.damageTracker = new DamageTracker();
     this.progress = 0;
     this.captured = false;
+    this.captureReady = false;
     this.ownerId = null;
     this.active = true;
     this.pulse = Math.random() * 10;
@@ -183,14 +184,33 @@ export class Objective {
       this.guardianY = this.y;
       return;
     }
+    const leashRules = CONFIG.objectiveRules?.leash || {};
+    const moveScale = leashRules.guardianMoveSpeedScale || 1;
+    const orbitScale = leashRules.guardianOrbitSpeedScale || 1;
     if (this.guardianKind === "volley") {
-      this.guardianPhase += dt * 0.8;
+      this.guardianPhase += dt * 1.05 * orbitScale;
       const bounds = this.guardianBounds;
-      this.guardianX = Math.max(bounds.x, Math.min(bounds.x + bounds.w, this.x + Math.cos(this.guardianPhase) * 74));
-      this.guardianY = Math.max(bounds.y, Math.min(bounds.y + bounds.h, this.y + Math.sin(this.guardianPhase * 1.25) * 54));
+      const guardian = this.guardianPoint;
+      const targetDistance = distance(guardian, target);
+      const anchorToTarget = Math.max(1, targetDistance);
+      const followDistance = targetDistance > 260 ? 190 : 245;
+      const goal = {
+        x: target.x - ((target.x - guardian.x) / anchorToTarget) * followDistance + Math.cos(this.guardianPhase) * 74,
+        y: target.y - ((target.y - guardian.y) / anchorToTarget) * followDistance + Math.sin(this.guardianPhase * 1.2) * 58
+      };
+      goal.x = Math.max(bounds.x, Math.min(bounds.x + bounds.w, goal.x));
+      goal.y = Math.max(bounds.y, Math.min(bounds.y + bounds.h, goal.y));
+      const goalDx = goal.x - this.guardianX;
+      const goalDy = goal.y - this.guardianY;
+      const goalDistance = Math.max(1, Math.hypot(goalDx, goalDy));
+      const speed = 205 * moveScale;
+      this.guardianX += (goalDx / goalDistance) * Math.min(speed * dt, goalDistance);
+      this.guardianY += (goalDy / goalDistance) * Math.min(speed * dt, goalDistance);
+      this.guardianX = Math.max(bounds.x, Math.min(bounds.x + bounds.w, this.guardianX));
+      this.guardianY = Math.max(bounds.y, Math.min(bounds.y + bounds.h, this.guardianY));
       return;
     }
-    this.guardianPhase += dt * (this.guardianKind === "hybrid" ? 1.8 : this.guardianKind === "charger" ? 2.6 : 1.1);
+    this.guardianPhase += dt * (this.guardianKind === "hybrid" ? 1.8 : this.guardianKind === "charger" ? 2.6 : 1.1) * orbitScale;
     const guardian = this.guardianPoint;
     const targetDistance = distance(guardian, target);
     const orbitX = Math.cos(this.guardianPhase) * (this.guardianKind === "hybrid" ? 44 : this.guardianKind === "charger" ? 18 : 20);
@@ -207,7 +227,7 @@ export class Objective {
     const goalDx = goal.x - this.guardianX;
     const goalDy = goal.y - this.guardianY;
     const goalDistance = Math.max(1, Math.hypot(goalDx, goalDy));
-    const speed = this.guardianKind === "hybrid" ? 245 : this.guardianKind === "charger" ? 320 : 185;
+    const speed = (this.guardianKind === "hybrid" ? 245 : this.guardianKind === "charger" ? 320 : 185) * moveScale;
     this.guardianX += (goalDx / goalDistance) * Math.min(speed * dt, goalDistance);
     this.guardianY += (goalDy / goalDistance) * Math.min(speed * dt, goalDistance);
     this.guardianX = Math.max(bounds.x, Math.min(bounds.x + bounds.w, this.guardianX));
@@ -256,12 +276,14 @@ export class Objective {
         this.captureOwnerId = null;
       }
       this.progress = 0;
+      this.captureReady = true;
     }
     return applied;
   }
 
   claim(owner) {
     this.captured = true;
+    this.captureReady = false;
     this.ownerId = owner.id;
     this.captureOwnerId = null;
     this.guardianKind = "tower";

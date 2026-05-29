@@ -3,6 +3,7 @@
 const ROOM_PREFIX = "basebound.room.";
 const ROOM_TTL_MS = 1000 * 60 * 45;
 const PLAYER_STALE_MS = 1000 * 35;
+const MAX_ROOM_PLAYERS = 8;
 
 export class MultiplayerRoomClient {
   constructor(displayName = "Player") {
@@ -21,9 +22,9 @@ export class MultiplayerRoomClient {
     this.roomUpdateHandler = null;
   }
 
-  async createRoom() {
+  async createRoom(settings = {}) {
     const player = this.playerPayload(true);
-    const { transport, room } = await withFallback((candidate) => candidate.createRoom(player));
+    const { transport, room } = await withFallback((candidate) => candidate.createRoom(player, settings));
     this.transport = transport;
     this.transportLabel = transport.label;
     this.isRemote = Boolean(transport.isRemote);
@@ -72,11 +73,11 @@ export class MultiplayerRoomClient {
     return this.lastRoom;
   }
 
-  async startRoom() {
+  async startRoom(settings = {}) {
     if (!this.transport || !this.roomCode) {
       throw new Error("Create or join a room first.");
     }
-    this.lastRoom = await this.transport.startRoom(this.roomCode, this.playerId);
+    this.lastRoom = await this.transport.startRoom(this.roomCode, this.playerId, settings);
     return this.lastRoom;
   }
 
@@ -101,8 +102,8 @@ export class MultiplayerRoomClient {
     }
 
     const shouldSend = this.sendTimer <= 0;
-    this.sendTimer = shouldSend ? 0.14 : this.sendTimer;
-    this.pollTimer = this.pollTimer <= 0 ? 0.48 : this.pollTimer;
+    this.sendTimer = shouldSend ? 0.1 : this.sendTimer;
+    this.pollTimer = this.pollTimer <= 0 ? 0.45 : this.pollTimer;
     this.busy = true;
     const state = shouldSend ? scene.snapshotForMultiplayer() : null;
     const task = state
@@ -142,10 +143,10 @@ class HttpRoomTransport {
     this.isRemote = true;
   }
 
-  async createRoom(player) {
+  async createRoom(player, settings = {}) {
     return requestJson("/api/rooms", {
       method: "POST",
-      body: { player }
+      body: { player, settings }
     });
   }
 
@@ -160,10 +161,10 @@ class HttpRoomTransport {
     return requestJson(`/api/rooms/${encodeURIComponent(code)}?playerId=${encodeURIComponent(player.id)}&name=${encodeURIComponent(player.name)}`);
   }
 
-  async startRoom(code, playerId) {
+  async startRoom(code, playerId, settings = {}) {
     return requestJson(`/api/rooms/${encodeURIComponent(code)}/start`, {
       method: "POST",
-      body: { playerId }
+      body: { playerId, settings }
     });
   }
 
@@ -206,7 +207,7 @@ class LocalRoomTransport {
     this.isRemote = false;
   }
 
-  async createRoom(player) {
+  async createRoom(player, settings = {}) {
     let code = makeRoomCode();
     while (readRoom(code)) {
       code = makeRoomCode();
@@ -216,6 +217,8 @@ class LocalRoomTransport {
       hostId: player.id,
       status: "lobby",
       transport: "local",
+      maxPlayers: MAX_ROOM_PLAYERS,
+      settings: sanitizeLocalSettings(settings),
       createdAt: Date.now(),
       updatedAt: Date.now(),
       startedAt: null,
@@ -238,8 +241,8 @@ class LocalRoomTransport {
     if (existingIndex >= 0) {
       room.players[existingIndex] = { ...room.players[existingIndex], ...player, lastSeen: Date.now() };
     } else {
-      if (room.players.length >= 2) {
-        throw new Error("This prototype room is full.");
+      if (room.players.length >= MAX_ROOM_PLAYERS) {
+        throw new Error("This room is full.");
       }
       room.players.push({ ...player, isHost: false, joinedAt: Date.now(), lastSeen: Date.now(), state: null });
     }
@@ -262,7 +265,7 @@ class LocalRoomTransport {
     return readRoom(code);
   }
 
-  async startRoom(code, playerId) {
+  async startRoom(code, playerId, settings = {}) {
     const room = readRoom(code);
     if (!room) {
       throw new Error("Room not found.");
@@ -270,6 +273,7 @@ class LocalRoomTransport {
     if (room.hostId !== playerId) {
       throw new Error("Only the host can start.");
     }
+    room.settings = sanitizeLocalSettings({ ...room.settings, ...settings });
     room.status = "started";
     room.startedAt = Date.now();
     room.updatedAt = Date.now();
@@ -364,11 +368,33 @@ function cleanRoom(room) {
   return {
     ...room,
     code: normalizeRoomCode(room.code),
-    players: players.slice(0, 2).map((player) => ({
+    maxPlayers: MAX_ROOM_PLAYERS,
+    settings: sanitizeLocalSettings(room.settings),
+    players: players.slice(0, MAX_ROOM_PLAYERS).map((player) => ({
       ...player,
       isHost: player.id === room.hostId
     }))
   };
+}
+
+function sanitizeLocalSettings(settings = {}) {
+  const mapSize = ["small", "medium", "large"].includes(settings.mapSize) ? settings.mapSize : "large";
+  const worldOptions = settings.worldOptions && typeof settings.worldOptions === "object" ? settings.worldOptions : {};
+  const worldSeed = String(settings.worldSeed || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 32) || makeWorldSeed();
+  return {
+    mapSize,
+    worldSeed,
+    worldOptions: {
+      bosses: worldOptions.bosses !== false,
+      towers: worldOptions.towers !== false,
+      villages: worldOptions.villages !== false
+    },
+    maxPlayers: MAX_ROOM_PLAYERS
+  };
+}
+
+function makeWorldSeed() {
+  return `bb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function makeRoomCode() {

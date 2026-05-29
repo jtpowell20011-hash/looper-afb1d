@@ -9,7 +9,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Basebound</title>
     <link rel="manifest" href="manifest.webmanifest">
-    <link rel="stylesheet" href="styles.css?v=1.8.43">
+    <link rel="stylesheet" href="styles.css?v=1.8.50">
   </head>
   <body>
     <main class="game-shell" aria-label="Basebound prototype">
@@ -68,6 +68,22 @@
         </div>
         <div class="meter target"><span id="targetInfoHealthBar"></span></div>
         <em id="targetInfoHealthText">0 / 0 HP</em>
+      </section>
+
+      <section id="baseQuickMenu" class="base-quick-menu" aria-label="Base building quick menu" hidden>
+        <div class="quick-menu-heading">
+          <div>
+            <strong id="quickBuildingTitle">Building</strong>
+            <span id="quickBuildingMeta">L1 Structure</span>
+          </div>
+          <button id="quickBuildingCloseButton" type="button" aria-label="Close building quick menu">X</button>
+        </div>
+        <div class="meter target"><span id="quickBuildingHealthBar"></span></div>
+        <p id="quickBuildingCostText">Hover a base building and press B.</p>
+        <div class="quick-menu-actions">
+          <button id="quickBuildingUpgradeButton" type="button">Upgrade</button>
+          <button id="quickBuildingOpenButton" type="button">Open Upgrades</button>
+        </div>
       </section>
 
       <section id="recallCastPanel" class="recall-cast-panel" aria-label="Recall channel" hidden>
@@ -358,7 +374,7 @@
               <button id="menuHowToPlayButton" type="button">How to Play</button>
               <button id="menuSettingsButton" type="button">Settings</button>
             </nav>
-            <span class="menu-version">Prototype v1.8.43</span>
+            <span class="menu-version">Prototype v1.8.50</span>
           </section>
 
           <section id="menuScreenMode" class="menu-screen" data-menu-screen="mode" hidden>
@@ -374,11 +390,11 @@
                 <em>Explore, build, fight objectives, and test the core loop against AI rivals.</em>
                 <small>Available</small>
               </button>
-              <button id="multiplayerModeButton" class="mode-card is-disabled" type="button" disabled>
+              <button id="multiplayerModeButton" class="mode-card" type="button">
                 <span class="mode-icon">MP</span>
                 <strong>Multiplayer</strong>
-                <em>Room codes, online lobbies, ready checks, and competitive matches are prepared for a later pass.</em>
-                <small>Coming Soon</small>
+                <em>Create a room, copy an invite link, and test live sync with friends on a hosted Node server.</em>
+                <small>Online Alpha</small>
               </button>
             </div>
           </section>
@@ -440,24 +456,24 @@
               <section class="network-panel setup-panel-wide">
                 <div>
                   <span>Multiplayer Platform</span>
-                  <strong id="shareUrlText">Paused</strong>
-                  <em id="networkHintText">Online rooms are on hold while the solo AI loop is tested.</em>
+                  <strong id="shareUrlText">Checking...</strong>
+                  <em id="networkHintText">Create a room to generate a shareable invite link.</em>
                 </div>
                 <button id="refreshNetworkButton" type="button">Refresh</button>
               </section>
 
               <section class="menu-panel setup-panel-wide">
                 <div class="panel-row">
-                  <span>Future Room Tools</span>
-                  <strong>Paused</strong>
+                  <span>Online Room Tools</span>
+                  <strong>Up to 8 players</strong>
                 </div>
                 <div class="room-tool-grid">
-                  <button id="createRoomButton" type="button" disabled>Multiplayer Paused</button>
+                  <button id="createRoomButton" type="button">Create Online Room</button>
                   <label class="menu-field">
                     <span>Room Code</span>
                     <input id="roomCodeInput" type="text" maxlength="8" placeholder="ABCDE">
                   </label>
-                  <button id="joinRoomButton" type="button" disabled>Joining Paused</button>
+                  <button id="joinRoomButton" type="button">Join Room</button>
                 </div>
               </section>
             </div>
@@ -610,8 +626,8 @@
       </section>
     </main>
 
-    <script src="assets/vendor/three.r128.min.js?v=1.8.43"></script>
-    <script type="module" src="src/main.js?v=1.8.43"></script>
+    <script src="assets/vendor/three.r128.min.js?v=1.8.50"></script>
+    <script type="module" src="src/main.js?v=1.8.50"></script>
   </body>
 </html>
 

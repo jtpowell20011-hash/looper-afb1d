@@ -1,5 +1,5 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.43";
+import { CONFIG } from "./config.js?v=1.8.50";
 
 export class MatchManager {
   constructor() {

@@ -11,9 +11,9 @@ async function bootBasebound() {
     }
 
     const [{ GameScene }, { MainMenu }, { SettingsManager }] = await Promise.all([
-      import("./game/GameScene.js?v=1.8.43"),
-      import("./game/MainMenu.js?v=1.8.43"),
-      import("./game/SettingsManager.js?v=1.8.43")
+      import("./game/GameScene.js?v=1.8.50"),
+      import("./game/MainMenu.js?v=1.8.50"),
+      import("./game/SettingsManager.js?v=1.8.50")
     ]);
 
     let activeGame = null;
@@ -68,14 +68,18 @@ async function bootBasebound() {
           characterId: session.characterId || "ranger",
           aiClassAssignments: session.aiClassAssignments || [],
           worldOptions: session.worldOptions || {},
+          worldSeed: session.worldSeed || session.room?.settings?.worldSeed || null,
           isHost: Boolean(session.isHost),
           roomCode: session.room?.code || null
         });
         activeGame = game;
         publishDebugGame(game);
-        game.start();
         document.body.dataset.gameStarted = "true";
         document.body.dataset.roomCode = session.room?.code || "solo";
+        game.start();
+        game.resize?.();
+        requestAnimationFrame(() => game.resize?.());
+        window.setTimeout(() => game.resize?.(), 80);
       }
     });
 

@@ -4,8 +4,12 @@ services:
     env: node
     buildCommand: npm run build:pwa
     startCommand: node server.js
+    healthCheckPath: /api/health
+    autoDeploy: true
     envVars:
       - key: STATIC_DIR
         value: dist
       - key: HOST
         value: 0.0.0.0
+      - key: MAX_PLAYERS
+        value: 8

@@ -1,7 +1,7 @@
 // @ts-check
-import { CHARACTER_CLASS_IDS, getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.43";
-import { CONFIG } from "./config.js?v=1.8.43";
-import { MultiplayerRoomClient } from "./MultiplayerRoomClient.js?v=1.8.43";
+import { CHARACTER_CLASS_IDS, getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.50";
+import { CONFIG } from "./config.js?v=1.8.50";
+import { MultiplayerRoomClient } from "./MultiplayerRoomClient.js?v=1.8.50";
 
 const DEFAULT_WORLD_OPTIONS = Object.freeze({
   bosses: true,
@@ -73,6 +73,7 @@ export class MainMenu {
     this.selectedCharacterId = "ranger";
     this.selectedMapSize = CONFIG.world.mapSize || "large";
     this.worldOptions = { ...DEFAULT_WORLD_OPTIONS };
+    this.pendingWorldSeed = makeWorldSeed();
     this.pendingAIClassAssignments = [];
     this.galleryMode = false;
     this.futureLobbyState = {
@@ -88,7 +89,7 @@ export class MainMenu {
         mapSize: this.selectedMapSize,
         worldOptions: { ...this.worldOptions }
       },
-      // TODO(multiplayer): hydrate this from the room service once online lobbies return.
+      // TODO(multiplayer): hydrate ready-state from the authoritative room service.
       allReady: false
     };
 
@@ -177,7 +178,7 @@ export class MainMenu {
     this.renderCharacterSelection();
     this.renderHowToPlay();
     this.renderIdle();
-    this.renderMultiplayerPaused();
+    this.loadNetworkInfo();
     this.showScreen("main");
     this.handleInviteUrl();
   }
@@ -197,7 +198,11 @@ export class MainMenu {
       this.setMode("solo");
       this.showScreen("setup");
     });
-    this.els.multiplayerModeButton.addEventListener("click", () => this.showPausedMultiplayerMessage());
+    this.els.multiplayerModeButton.addEventListener("click", () => {
+      this.setMode("multiplayer");
+      this.showScreen("setup");
+      this.loadNetworkInfo();
+    });
     this.els.characterCardList.addEventListener("click", (event) => {
       const button = event.target.closest?.("[data-character-id]");
       if (!button) {
@@ -224,14 +229,14 @@ export class MainMenu {
     for (const button of [this.els.toggleBossesButton, this.els.toggleTowersButton, this.els.toggleVillagesButton]) {
       button.addEventListener("click", () => this.toggleWorldOption(button.dataset.worldOption));
     }
-    this.els.createButton.addEventListener("click", () => this.showPausedMultiplayerMessage());
-    this.els.joinButton.addEventListener("click", () => this.showPausedMultiplayerMessage());
+    this.els.createButton.addEventListener("click", () => this.createRoom());
+    this.els.joinButton.addEventListener("click", () => this.joinRoom());
     this.els.startButton.addEventListener("click", () => this.startRoom());
     this.els.soloButton.addEventListener("click", () => this.startSolo());
     this.els.roomCodeInput.addEventListener("input", () => {
       this.els.roomCodeInput.value = normalizeRoomCode(this.els.roomCodeInput.value);
     });
-    this.els.refreshNetworkButton.addEventListener("click", () => this.renderMultiplayerPaused());
+    this.els.refreshNetworkButton.addEventListener("click", () => this.loadNetworkInfo());
     this.els.copyInviteButton.addEventListener("click", () => this.copyInviteLink());
   }
 
@@ -257,7 +262,11 @@ export class MainMenu {
       this.setStatus("Choose a mode to enter the Wildlands.");
     } else if (screen === "setup") {
       this.renderSetup();
-      this.setStatus("Configure your solo bot match.");
+      this.setStatus(
+        this.selectedMode === "multiplayer"
+          ? "Create a room, share the invite link, then choose your hero before the host starts."
+          : "Configure your solo bot match."
+      );
     } else if (screen === "howToPlay") {
       this.setStatus("Review the core loop, controls, and objectives.");
     }
@@ -304,7 +313,8 @@ export class MainMenu {
     this.els.soloModeButton.classList.toggle("is-active", this.selectedMode === "solo");
     this.els.multiplayerModeButton.classList.toggle("is-active", this.selectedMode === "multiplayer");
     if (this.selectedMode === "multiplayer") {
-      this.showPausedMultiplayerMessage();
+      this.setAiCount(0);
+      this.setStatus("Online room testing is enabled. Create a room or paste a room code to join.");
     } else {
       this.setStatus("Choose a character, pick AI opponents, then ready up.");
     }
@@ -411,7 +421,7 @@ export class MainMenu {
     try {
       this.setBusy(true, "Creating room...");
       const client = new MultiplayerRoomClient(this.playerName);
-      const room = await client.createRoom();
+      const room = await client.createRoom(this.roomSettingsPayload());
       this.setRoom(client, room);
       this.setStatus(
         client.isRemote
@@ -450,8 +460,10 @@ export class MainMenu {
     }
     this.inviteHandled = true;
     this.els.roomCodeInput.value = this.inviteCode;
+    this.setMode("multiplayer");
     this.showScreen("setup");
-    this.setStatus(`Invite ${this.inviteCode} detected, but multiplayer rooms are paused for this AI playtest build.`);
+    this.setStatus(`Invite ${this.inviteCode} detected. Joining the room now.`);
+    window.setTimeout(() => this.joinRoom(), 180);
   }
 
   async startRoom() {
@@ -461,7 +473,7 @@ export class MainMenu {
     }
     try {
       this.setBusy(true, "Starting room...");
-      const room = await this.roomClient.startRoom();
+      const room = await this.roomClient.startRoom(this.roomSettingsPayload());
       this.setRoom(this.roomClient, room);
       this.maybeStart(room);
     } catch (error) {
@@ -474,13 +486,36 @@ export class MainMenu {
   setRoom(client, room) {
     this.roomClient = client;
     this.room = room;
+    this.applyRoomSettings(room);
     this.renderRoom(room);
     this.roomClient.subscribe?.((nextRoom) => {
       this.room = nextRoom;
+      this.applyRoomSettings(nextRoom);
       this.renderRoom(nextRoom);
       this.maybeStart(nextRoom);
     });
     this.startPolling();
+  }
+
+  applyRoomSettings(room) {
+    if (!room?.settings) {
+      return;
+    }
+    if (CONFIG.mapSizes?.[room.settings.mapSize]) {
+      this.selectedMapSize = room.settings.mapSize;
+      this.els.mapSizeSelect.value = this.selectedMapSize;
+    }
+    if (room.settings.worldOptions) {
+      this.worldOptions = { ...DEFAULT_WORLD_OPTIONS, ...room.settings.worldOptions };
+    }
+    if (room.settings.worldSeed) {
+      this.pendingWorldSeed = room.settings.worldSeed;
+    }
+    this.futureLobbyState.settings = {
+      mapSize: this.selectedMapSize,
+      worldOptions: { ...this.worldOptions },
+      worldSeed: this.pendingWorldSeed
+    };
   }
 
   startPolling() {
@@ -509,6 +544,7 @@ export class MainMenu {
     try {
       const room = await this.roomClient.getRoom();
       this.room = room;
+      this.applyRoomSettings(room);
       this.renderRoom(room);
       this.maybeStart(room);
     } catch (error) {
@@ -531,8 +567,9 @@ export class MainMenu {
       displayName: this.playerName,
       keybindings: this.settingsManager.keybindings,
       mapSize: room.settings?.mapSize || this.selectedMapSize,
-      characterId: room.settings?.characterId || this.selectedCharacterId,
+      characterId: this.selectedCharacterId,
       worldOptions: room.settings?.worldOptions || this.worldOptions,
+      worldSeed: room.settings?.worldSeed || this.pendingWorldSeed,
       isHost: this.roomClient.isHost
     });
   }
@@ -654,14 +691,15 @@ export class MainMenu {
     this.els.roomPanel.hidden = false;
     this.els.roomCodeText.textContent = room.code;
     this.els.roomTransportText.textContent = this.roomClient?.transportLabel || "Local";
-    this.els.roomStatusText.textContent = room.status === "started" ? "Starting" : "Lobby";
+    const maxPlayers = room.maxPlayers || room.settings?.maxPlayers || 8;
+    this.els.roomStatusText.textContent = room.status === "started" ? "Starting" : `Lobby ${room.players.length}/${maxPlayers}`;
     this.els.inviteUrlText.textContent = this.roomClient?.isRemote
       ? this.getInviteUrl(room.code)
       : "Local-tab room only. Use the Node server or a public deployment for shareable links.";
     this.els.copyInviteButton.disabled = !this.roomClient?.isHost || !this.roomClient?.isRemote;
     this.els.startButton.hidden = !this.roomClient?.isHost;
     this.els.startButton.disabled = room.status === "started";
-    this.els.startButton.textContent = room.players.length >= 2 ? "Start Game" : "Start Anyway";
+    this.els.startButton.textContent = room.players.length >= 2 ? "Start Game" : "Start Solo Room";
     this.els.roomPlayerList.innerHTML = room.players
       .map(
         (player) =>
@@ -686,13 +724,19 @@ export class MainMenu {
       this.shareOrigin = bestUrl || location.origin;
       this.els.shareUrlText.textContent = bestUrl || location.origin;
       this.els.networkHintText.textContent = isLocal
-        ? "Do not share the 127.0.0.1 URL. Use LAN hosting or a deployed public website."
-        : "This URL can be shared once online rooms are re-enabled.";
+        ? "Localhost links only work on this computer. Deploy this Node app to share rooms over the internet."
+        : `Shareable room service online. Supports up to ${info.multiplayer?.maxPlayers || 8} players per room.`;
+      this.els.createButton.disabled = false;
+      this.els.joinButton.disabled = false;
+      this.els.roomCodeInput.disabled = false;
     } catch {
       this.shareOrigin = location.origin;
       this.els.shareUrlText.textContent = location.href;
       this.els.networkHintText.textContent =
         "This preview is static/local only. Start the multiplayer server or deploy the Node app before sharing rooms.";
+      this.els.createButton.disabled = false;
+      this.els.joinButton.disabled = false;
+      this.els.roomCodeInput.disabled = false;
     }
     if (this.room?.code && this.roomClient?.isRemote) {
       this.els.inviteUrlText.textContent = this.getInviteUrl(this.room.code);
@@ -700,16 +744,12 @@ export class MainMenu {
   }
 
   renderMultiplayerPaused() {
-    this.shareOrigin = location.origin;
-    this.els.shareUrlText.textContent = "Paused";
-    this.els.networkHintText.textContent = "Online rooms are intentionally paused while AI enemy players test the core loop.";
-    this.els.createButton.disabled = true;
-    this.els.joinButton.disabled = true;
-    this.els.roomCodeInput.disabled = true;
+    this.loadNetworkInfo();
   }
 
   showPausedMultiplayerMessage() {
-    this.setStatus("Multiplayer is on hold for now. Use Solo Test with AI opponents.");
+    this.setMode("multiplayer");
+    this.showScreen("setup");
   }
 
   getInviteUrl(code) {
@@ -737,8 +777,9 @@ export class MainMenu {
   }
 
   setBusy(busy, message = null) {
-    this.els.createButton.disabled = true;
-    this.els.joinButton.disabled = true;
+    this.els.createButton.disabled = busy;
+    this.els.joinButton.disabled = busy;
+    this.els.roomCodeInput.disabled = busy;
     this.els.soloButton.disabled = busy;
     this.els.startButton.disabled = busy || this.room?.status === "started";
     if (message) {
@@ -757,6 +798,18 @@ export class MainMenu {
   get aiCount() {
     return Math.max(0, Math.min(7, Number(this.els.aiCountSelect.value || 0)));
   }
+
+  roomSettingsPayload() {
+    if (!this.pendingWorldSeed) {
+      this.pendingWorldSeed = makeWorldSeed();
+    }
+    return {
+      mapSize: this.selectedMapSize,
+      worldSeed: this.room?.settings?.worldSeed || this.pendingWorldSeed,
+      worldOptions: { ...this.worldOptions },
+      maxPlayers: 8
+    };
+  }
 }
 
 function byId(id) {
@@ -772,6 +825,10 @@ function normalizeRoomCode(code) {
 function inviteCodeFromLocation() {
   const params = new URLSearchParams(location.search);
   return normalizeRoomCode(params.get("room") || params.get("join") || "");
+}
+
+function makeWorldSeed() {
+  return `bb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function labelForWorldOption(option) {

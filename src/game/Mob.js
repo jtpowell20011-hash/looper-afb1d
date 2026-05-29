@@ -1,8 +1,8 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.43";
-import { Entity } from "./Entity.js?v=1.8.43";
-import { clamp, distance, normalize, randRange } from "./math.js?v=1.8.43";
-import { DamageTracker } from "./RewardSystem.js?v=1.8.43";
+import { CONFIG } from "./config.js?v=1.8.50";
+import { Entity } from "./Entity.js?v=1.8.50";
+import { clamp, distance, normalize, randRange } from "./math.js?v=1.8.50";
+import { DamageTracker } from "./RewardSystem.js?v=1.8.50";
 
 export class Mob extends Entity {
   constructor({
@@ -37,15 +37,23 @@ export class Mob extends Entity {
     this.archetype = isBoss ? "boss" : archetype;
     this.baseMaxHealth = maxHealth;
     this.baseDamage = isBoss ? 28 : profile.damage;
-    this.speed = isBoss ? 112 : profile.speed;
+    this.speed = isBoss ? 112 * (CONFIG.objectiveRules?.leash?.bossMoveSpeedScale || 1) : profile.speed;
     this.damage = this.baseDamage;
     this.attackRange = isBoss ? 56 : profile.attackRange;
     this.attackCooldown = profile.attackCooldown + (isBoss ? 0.35 : 0);
     this.attackTimer = randRange(0.1, 0.8);
     this.chaseRadius = isBoss ? 540 : CONFIG.mobs.chaseRadius + tier * 34;
-    this.xpReward = isBoss ? 0 : Math.round((26 + tier * 11) * rewardScale);
-    this.goldReward = isBoss ? 0 : Math.round((18 + tier * 9) * rewardScale * campRewardWeight(campType, "gold"));
-    this.resourceReward = isBoss ? 0 : Math.round((7 + tier * 6) * rewardScale * campRewardWeight(campType, "resources"));
+    const rewardConfig = CONFIG.economy?.mobRewards || {};
+    this.rewardBase = {
+      xp: isBoss ? 0 : Math.round((26 + tier * 11) * rewardScale * (rewardConfig.xpMultiplier || 1)),
+      gold: isBoss
+        ? 0
+        : Math.round((18 + tier * 9 + tier * (rewardConfig.tierGoldBonus || 0)) * rewardScale * campRewardWeight(campType, "gold") * (rewardConfig.goldMultiplier || 1)),
+      resources: isBoss
+        ? 0
+        : Math.round((7 + tier * 6 + tier * (rewardConfig.tierResourceBonus || 0)) * rewardScale * campRewardWeight(campType, "resources") * (rewardConfig.resourceMultiplier || 1))
+    };
+    this.updateRewardsForLevel(1);
     this.targetBase = targetBase;
     this.damageTracker = new DamageTracker();
     this.facing = { x: 0, y: 1 };
@@ -61,6 +69,14 @@ export class Mob extends Entity {
     this.curseDps = 0;
     this.curseSource = null;
     this.arenaBounds = arenaBounds;
+  }
+
+  updateRewardsForLevel(level = 1) {
+    const rewardConfig = CONFIG.economy?.mobRewards || {};
+    const levelDelta = Math.max(0, Math.floor(level || 1) - 1);
+    this.xpReward = Math.round((this.rewardBase?.xp || 0) * (1 + levelDelta * (rewardConfig.levelXpScale || 0)));
+    this.goldReward = Math.round((this.rewardBase?.gold || 0) * (1 + levelDelta * (rewardConfig.levelGoldScale || 0)));
+    this.resourceReward = Math.round((this.rewardBase?.resources || 0) * (1 + levelDelta * (rewardConfig.levelResourceScale || 0)));
   }
 
   update(dt, scene) {
@@ -257,6 +273,7 @@ export class Mob extends Entity {
     this.scaledLevel = nextLevel;
     this.maxHealth = Math.round(this.baseMaxHealth * (1 + (nextLevel - 1) * 0.2));
     this.damage = Math.round(this.baseDamage * (1 + (nextLevel - 1) * 0.12));
+    this.updateRewardsForLevel(nextLevel);
     if (this.alive) {
       this.health = Math.min(this.maxHealth, this.health + Math.max(0, this.maxHealth - oldMax));
     }

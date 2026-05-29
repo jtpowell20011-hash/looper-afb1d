@@ -1,19 +1,19 @@
 // @ts-check
-import { BaseController } from "./Base.js?v=1.8.43";
-import { AIPlayerController } from "./AIPlayer.js?v=1.8.43";
-import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.43";
-import { CONFIG } from "./config.js?v=1.8.43";
-import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.43";
-import { GameMap } from "./Map.js?v=1.8.43";
-import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.43";
-import { MatchManager } from "./MatchManager.js?v=1.8.43";
-import { Mob } from "./Mob.js?v=1.8.43";
-import { createObjectives } from "./Objective.js?v=1.8.43";
-import { Player } from "./Player.js?v=1.8.43";
-import { RewardSystem } from "./RewardSystem.js?v=1.8.43";
-import { UIManager } from "./UIManager.js?v=1.8.43";
-import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.43";
-import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.43";
+import { BaseController } from "./Base.js?v=1.8.50";
+import { AIPlayerController } from "./AIPlayer.js?v=1.8.50";
+import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.50";
+import { CONFIG } from "./config.js?v=1.8.50";
+import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.50";
+import { GameMap } from "./Map.js?v=1.8.50";
+import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.50";
+import { MatchManager } from "./MatchManager.js?v=1.8.50";
+import { Mob } from "./Mob.js?v=1.8.50";
+import { createObjectives } from "./Objective.js?v=1.8.50";
+import { Player } from "./Player.js?v=1.8.50";
+import { RewardSystem } from "./RewardSystem.js?v=1.8.50";
+import { UIManager } from "./UIManager.js?v=1.8.50";
+import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.50";
+import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.50";
 
 export class GameScene {
   constructor(canvas, options = {}) {
@@ -38,7 +38,9 @@ export class GameScene {
     this.destroyed = false;
     this.keybindings = { ...DEFAULT_KEYBINDINGS, ...(options.keybindings || {}) };
     this.multiplayer = options.multiplayer || null;
-    this.aiCount = Math.max(0, Math.min(7, Number(options.aiCount || 0)));
+    // In a real multiplayer room the roster is human players; AI rivals are
+    // simulated independently per client and would desync, so disable them.
+    this.aiCount = this.multiplayer ? 0 : Math.max(0, Math.min(7, Number(options.aiCount || 0)));
     this.mapSizeId = CONFIG.mapSizes?.[options.mapSize] ? options.mapSize : CONFIG.world.mapSize || "large";
     this.applyMapSizeConfig(this.mapSizeId);
     this.worldOptions = {
@@ -52,6 +54,7 @@ export class GameScene {
     this.isHost = Boolean(options.isHost);
     this.playerName = options.playerName || "Basebound Scout";
     this.roomCode = options.roomCode || null;
+    this.worldSeed = options.worldSeed || null;
     this.remotePlayers = new Map();
     this.remoteBases = new Map();
     this.rewardSystem = new RewardSystem();
@@ -82,6 +85,8 @@ export class GameScene {
       upgradeWallHealth: () => this.upgradeWallHealth(),
       repairWalls: () => this.repairWalls(),
       rebuildWalls: () => this.rebuildWalls(),
+      quickUpgradeBuilding: (id) => this.quickUpgradeBuilding(id),
+      openBuildingUpgradeList: (id) => this.openBuildingUpgradeList(id),
       basicAttack: () => this.handlePrimaryAttackInput(),
       toggleAbility: (id) => this.toggleAbilityPreview(id),
       setBaseLayout: (layoutId) => this.setBaseLayout(layoutId),
@@ -131,15 +136,7 @@ export class GameScene {
     this.basePlacementPreviewActive = false;
     this.baseReplotsRemaining = CONFIG.base.maxReplots;
     this.match = new MatchManager();
-    this.map = new GameMap({ worldOptions: this.worldOptions });
-    this.objectives = createObjectives(this.map);
-    if (!this.worldOptions.bosses) {
-      this.objectives = this.objectives.filter((objective) => objective.type !== "boss");
-    }
-    this.neutralTowers = (this.map.neutralTowers || []).map((tower) => this.hydrateNeutralTower(tower));
-    this.villages = (this.map.villages || []).map((village) => ({ ...village }));
-    this.campDefinitions = this.map.createCampConfigs(CONFIG.camps);
-    this.wardSites = this.map.offsetConfigs(CONFIG.wardSites);
+    this.createSharedWorldState();
     this.spawnPoint = this.selectRandomSpawnPoint();
     document.body.dataset.spawnX = String(Math.round(this.spawnPoint.x));
     document.body.dataset.spawnY = String(Math.round(this.spawnPoint.y));
@@ -155,11 +152,6 @@ export class GameScene {
     this.baseEffects = [];
     this.baseDefenders = [];
     this.droppedLoot = [];
-    this.explorationChests = this.createExplorationChests();
-    this.roamingEncounters = this.map.offsetConfigs(CONFIG.roamingEncounters).map((encounter) => ({
-      ...encounter,
-      triggered: false
-    }));
     this.placedWards = [];
     this.floatingTexts = [];
     this.floatingTextPool = [];
@@ -170,6 +162,7 @@ export class GameScene {
     this.minimapDragging = false;
     this.queuedAbilityId = null;
     this.hoverTarget = null;
+    this.hoveredBaseBuilding = null;
     this.selectedTarget = null;
     this.autoAttackToastTimer = 0;
     this.targetPanelDirty = true;
@@ -215,6 +208,26 @@ export class GameScene {
     }
     this.spawnOpeningCamps();
     this.updateFogOfWar();
+  }
+
+  createSharedWorldState() {
+    const buildWorld = () => {
+      this.map = new GameMap({ worldOptions: this.worldOptions });
+      this.objectives = createObjectives(this.map);
+      if (!this.worldOptions.bosses) {
+        this.objectives = this.objectives.filter((objective) => objective.type !== "boss");
+      }
+      this.neutralTowers = (this.map.neutralTowers || []).map((tower) => this.hydrateNeutralTower(tower));
+      this.villages = (this.map.villages || []).map((village) => ({ ...village }));
+      this.campDefinitions = this.map.createCampConfigs(CONFIG.camps);
+      this.wardSites = this.map.offsetConfigs(CONFIG.wardSites);
+      this.explorationChests = this.createExplorationChests();
+      this.roamingEncounters = this.map.offsetConfigs(CONFIG.roamingEncounters).map((encounter) => ({
+        ...encounter,
+        triggered: false
+      }));
+    };
+    withSeededRandom(this.worldSeed, buildWorld);
   }
 
   hydrateNeutralTower(tower) {
@@ -446,6 +459,7 @@ export class GameScene {
   handleMouseMove(event) {
     this.syncMouseFromEvent(event);
     this.hoverTarget = this.findTargetAtPoint(this.input.mouseWorld, CONFIG.combat?.autoAttack?.hoverRadius || 44);
+    this.hoveredBaseBuilding = this.findFriendlyBaseBuildingAtPoint(this.input.mouseWorld);
   }
 
   handleMouseDown(event) {
@@ -561,6 +575,9 @@ export class GameScene {
       this.toggleAbilityPreview("ultimate");
     } else if (this.isBound(event.code, "placeBase")) {
       this.clearQueuedAbility();
+      if (this.openHoveredBaseBuildingMenu()) {
+        return;
+      }
       this.toggleBasePlacementPreview();
     } else if (this.isBound(event.code, "recall")) {
       this.clearQueuedAbility();
@@ -617,6 +634,128 @@ export class GameScene {
 
   clearQueuedAbility() {
     this.queuedAbilityId = null;
+  }
+
+  findFriendlyBaseBuildingAtPoint(point) {
+    if (!this.base?.active || !point) {
+      return null;
+    }
+    let best = null;
+    let bestScore = Infinity;
+    for (const building of this.base.livingBuildings) {
+      const padding = building.type === "wall" ? 8 : 18;
+      const halfWidth = (building.width || building.radius * 2) / 2 + padding;
+      const halfHeight = (building.height || building.radius * 2) / 2 + padding;
+      const insideRect =
+        point.x >= building.x - halfWidth &&
+        point.x <= building.x + halfWidth &&
+        point.y >= building.y - halfHeight &&
+        point.y <= building.y + halfHeight;
+      const targetRadius = (building.radius || 24) + padding;
+      const insideCircle = distance(point, building) <= targetRadius;
+      if (!insideRect && !insideCircle) {
+        continue;
+      }
+      const score = Math.max(0, distance(point, building) - targetRadius);
+      if (score < bestScore) {
+        best = building;
+        bestScore = score;
+      }
+    }
+    if (best) {
+      return best;
+    }
+    const screenPoint = this.input?.mouseScreen;
+    const project = this.lowPolyRenderer?.worldToScreen?.bind(this.lowPolyRenderer);
+    if (!screenPoint || !project) {
+      return null;
+    }
+    let screenBest = null;
+    let screenBestScore = Infinity;
+    for (const building of this.base.livingBuildings) {
+      const zHeight = building.type === "wall" ? 0.55 : building.type === "core" ? 1.25 : 0.95;
+      if (building.type === "wall" || Number.isFinite(building.width) || Number.isFinite(building.height)) {
+        const halfWidth = (building.width || 36) / 2;
+        const halfHeight = (building.height || 36) / 2;
+        const corners = [
+          project(building.x - halfWidth, building.y - halfHeight, zHeight, this.viewWidth, this.viewHeight),
+          project(building.x + halfWidth, building.y - halfHeight, zHeight, this.viewWidth, this.viewHeight),
+          project(building.x + halfWidth, building.y + halfHeight, zHeight, this.viewWidth, this.viewHeight),
+          project(building.x - halfWidth, building.y + halfHeight, zHeight, this.viewWidth, this.viewHeight)
+        ].filter(Boolean);
+        if (corners.length < 2) {
+          continue;
+        }
+        const minX = Math.min(...corners.map((corner) => corner.x)) - 28;
+        const maxX = Math.max(...corners.map((corner) => corner.x)) + 28;
+        const minY = Math.min(...corners.map((corner) => corner.y)) - 28;
+        const maxY = Math.max(...corners.map((corner) => corner.y)) + 28;
+        if (screenPoint.x >= minX && screenPoint.x <= maxX && screenPoint.y >= minY && screenPoint.y <= maxY) {
+          const center = project(building.x, building.y, zHeight, this.viewWidth, this.viewHeight);
+          const score = center ? distance(screenPoint, center) : 0;
+          if (score < screenBestScore) {
+            screenBest = building;
+            screenBestScore = score;
+          }
+        }
+        continue;
+      }
+      const center = project(building.x, building.y, zHeight, this.viewWidth, this.viewHeight);
+      const edge = project(building.x + (building.radius || 26), building.y, zHeight, this.viewWidth, this.viewHeight);
+      if (!center) {
+        continue;
+      }
+      const projectedRadius = edge ? Math.max(30, distance(center, edge) + 24) : 42;
+      const score = distance(screenPoint, center);
+      if (score <= projectedRadius && score < screenBestScore) {
+        screenBest = building;
+        screenBestScore = score;
+      }
+    }
+    return screenBest;
+  }
+
+  openHoveredBaseBuildingMenu() {
+    if (!this.hoveredBaseBuilding?.alive) {
+      return false;
+    }
+    this.clearQueuedAbility();
+    this.basePlacementPreviewActive = false;
+    this.ui.openBuildingQuickMenu(this.hoveredBaseBuilding, this);
+    this.addToast(`${this.hoveredBaseBuilding.label || "Building"} selected for quick upgrades.`);
+    return true;
+  }
+
+  quickUpgradeBuilding(id) {
+    const building = this.base.livingBuildings.find((candidate) => candidate.id === id);
+    if (!building) {
+      this.addToast("That building is no longer available.");
+      this.ui.closeBuildingQuickMenu();
+      return;
+    }
+    if (building.type === "wall") {
+      this.upgradeWallHealth();
+    } else {
+      this.upgradeBuildingById(id);
+    }
+    const refreshed = this.base.livingBuildings.find((candidate) => candidate.id === id);
+    if (refreshed) {
+      this.ui.openBuildingQuickMenu(refreshed, this);
+    }
+  }
+
+  openBuildingUpgradeList(id) {
+    const building = this.base.livingBuildings.find((candidate) => candidate.id === id);
+    if (!building) {
+      this.addToast("That building is no longer available.");
+      this.ui.closeBuildingQuickMenu();
+      return;
+    }
+    if (building.type === "wall") {
+      this.ui.open("base");
+      return;
+    }
+    this.ui.openUpgradeList(building.type === "tower" || building.type === "ballista" || building.type === "pulseTower" ? "tower" : building.type);
   }
 
   castQueuedAbility() {
@@ -1059,7 +1198,29 @@ export class GameScene {
     if (!this.multiplayer) {
       return;
     }
+    this.interpolateRemotePlayers(dt);
     this.multiplayer.tick(this, dt);
+  }
+
+  // Smoothly ease each remote proxy toward its last networked position so
+  // movement reads cleanly between the ~8Hz network updates instead of teleporting.
+  interpolateRemotePlayers(dt) {
+    const k = Math.min(1, dt * 14);
+    for (const remote of this.remotePlayers.values()) {
+      if (!Number.isFinite(remote.targetX) || !Number.isFinite(remote.targetY)) {
+        continue;
+      }
+      const dx = remote.targetX - remote.x;
+      const dy = remote.targetY - remote.y;
+      if (dx * dx + dy * dy > 1) {
+        const facing = normalize(dx, dy);
+        if (Math.abs(facing.x) + Math.abs(facing.y) > 0.001) {
+          remote.facing = facing;
+        }
+      }
+      remote.x += dx * k;
+      remote.y += dy * k;
+    }
   }
 
   updateAIPlayers(dt) {
@@ -1121,7 +1282,10 @@ export class GameScene {
         maxHealth: this.player.effectiveMaxHealth,
         healthRatio: this.player.healthRatio,
         alive: this.player.alive,
-        respawnTimer: this.player.respawnTimer
+        respawnTimer: this.player.respawnTimer,
+        radius: this.player.radius,
+        fx: this.player.facing ? Math.round((this.player.facing.x || 0) * 100) / 100 : 0,
+        fy: this.player.facing ? Math.round((this.player.facing.y || 1) * 100) / 100 : 1
       },
       base: {
         active: this.base.active,
@@ -1146,23 +1310,59 @@ export class GameScene {
   }
 
   setRemoteSnapshots(remotePlayers) {
-    const nextPlayers = new Map();
+    const seen = new Set();
     const nextBases = new Map();
     for (const remote of remotePlayers) {
-      nextPlayers.set(remote.id, {
-        id: remote.id,
-        name: remote.name || remote.state?.player?.name || "Player",
-        ...remote.state?.player
-      });
+      const snap = remote.state?.player || {};
+      seen.add(remote.id);
+      // Reuse the existing proxy so interpolation state (x/y) survives updates.
+      let proxy = this.remotePlayers.get(remote.id);
+      if (!proxy) {
+        proxy = {
+          id: remote.id,
+          isRemotePlayer: true,
+          x: Number.isFinite(snap.x) ? snap.x : 0,
+          y: Number.isFinite(snap.y) ? snap.y : 0,
+          facing: { x: 0, y: 1 }
+        };
+        this.remotePlayers.set(remote.id, proxy);
+      }
+      proxy.name = remote.name || snap.name || "Player";
+      proxy.displayName = proxy.name;
+      proxy.characterId = snap.characterId || proxy.characterId || "ranger";
+      proxy.characterLabel = snap.characterLabel || proxy.characterLabel;
+      proxy.level = snap.level ?? proxy.level ?? 1;
+      proxy.alive = snap.alive !== false;
+      proxy.health = snap.health;
+      proxy.maxHealth = snap.maxHealth;
+      proxy.healthRatio = snap.healthRatio ?? 1;
+      proxy.respawnTimer = snap.respawnTimer || 0;
+      proxy.radius = snap.radius || proxy.radius || 22;
+      if (Number.isFinite(snap.fx) || Number.isFinite(snap.fy)) {
+        proxy.facing = { x: snap.fx || 0, y: snap.fy ?? 1 };
+      }
+      if (Number.isFinite(snap.x) && Number.isFinite(snap.y)) {
+        // Snap on first sight or a teleport-sized jump (respawn), else interpolate.
+        if (!Number.isFinite(proxy.targetX) || Math.hypot(snap.x - proxy.x, snap.y - proxy.y) > 700) {
+          proxy.x = snap.x;
+          proxy.y = snap.y;
+        }
+        proxy.targetX = snap.x;
+        proxy.targetY = snap.y;
+      }
       if (remote.state?.base?.buildings) {
         nextBases.set(remote.id, {
           playerId: remote.id,
-          name: remote.name || "Player",
+          name: proxy.name,
           buildings: remote.state.base.buildings
         });
       }
     }
-    this.remotePlayers = nextPlayers;
+    for (const id of [...this.remotePlayers.keys()]) {
+      if (!seen.has(id)) {
+        this.remotePlayers.delete(id);
+      }
+    }
     this.remoteBases = nextBases;
   }
 
@@ -1256,14 +1456,30 @@ export class GameScene {
       const activeRadius = CONFIG.performance?.activeCampRadius || 2400;
       const hasNearbyActor =
         distance(camp, this.player) < activeRadius || (this.aiPlayers || []).some((ai) => ai.player.alive && distance(camp, ai.player) < activeRadius);
-      camp.timer -= hasNearbyActor ? step : step * 0.25;
       const tierConfig = CONFIG.campTiers[camp.tier] || CONFIG.campTiers[1];
       const campMax = camp.maxMobs || tierConfig.maxMobs || CONFIG.mobs.campMax;
       const livingCampMobs = campCounts.get(camp.id) || 0;
+      if (livingCampMobs > 0) {
+        camp.wasPopulated = true;
+        camp.clearTimer = 0;
+      } else if (camp.wasPopulated) {
+        if (!Number.isFinite(camp.clearTimer) || camp.clearTimer <= 0) {
+          camp.clearTimer = camp.clearRespawn || tierConfig.clearRespawn || Math.max(36, (camp.respawn || tierConfig.respawn || 18) * 1.6);
+        }
+        camp.clearTimer -= hasNearbyActor ? step : step * 0.5;
+        if (camp.clearTimer > 0) {
+          continue;
+        }
+        camp.wasPopulated = false;
+        camp.timer = 0;
+      }
+      camp.timer -= hasNearbyActor ? step : step * 0.25;
       if (livingCampMobs >= campMax || camp.timer > 0) {
         continue;
       }
       this.spawnCampMob(camp);
+      camp.wasPopulated = true;
+      camp.clearTimer = 0;
       campCounts.set(camp.id, livingCampMobs + 1);
       camp.timer = camp.respawn || tierConfig.respawn || CONFIG.mobs.baseSpawnInterval + randRange(0, 4);
     }
@@ -1925,7 +2141,13 @@ export class GameScene {
       if (distance(camp, this.spawnPoint) < 680) {
         continue;
       }
-      this.spawnMobsAround(camp.x, camp.y, openingCount, camp.tier, false, camp.id, camp.variants);
+      const tierConfig = CONFIG.campTiers[camp.tier] || CONFIG.campTiers[1];
+      const rewardConfig = CONFIG.economy?.mobRewards || {};
+      const zoneScale = rewardConfig.zoneMultipliers?.[camp.zoneType] || 1;
+      this.spawnMobsAround(camp.x, camp.y, openingCount, camp.tier, false, camp.id, camp.variants, {
+        campType: camp.campType,
+        rewardScale: (tierConfig.rewardScale || 1) * zoneScale * (camp.minor ? rewardConfig.minorCampRewardMultiplier || 0.82 : 1)
+      });
     }
   }
 
@@ -1962,9 +2184,11 @@ export class GameScene {
   spawnCampMob(camp) {
     const tierConfig = CONFIG.campTiers[camp.tier] || CONFIG.campTiers[1];
     const count = camp.minor ? 1 : camp.tier >= 3 && Math.random() < 0.25 ? 2 : 1;
+    const rewardConfig = CONFIG.economy?.mobRewards || {};
+    const zoneScale = rewardConfig.zoneMultipliers?.[camp.zoneType] || 1;
     this.spawnMobsAround(camp.x, camp.y, count, camp.tier, false, camp.id, camp.variants || CONFIG.campTypes[camp.campType]?.variants, {
       campType: camp.campType,
-      rewardScale: (tierConfig.rewardScale || 1) * (camp.minor ? 0.68 : 1)
+      rewardScale: (tierConfig.rewardScale || 1) * zoneScale * (camp.minor ? rewardConfig.minorCampRewardMultiplier || 0.82 : 1)
     });
   }
 
@@ -2529,11 +2753,23 @@ export class GameScene {
 
   handleObjectiveGuardianDefeated(objective, source = {}) {
     objective.progress = 0;
+    objective.captureReady = true;
+    objective.captureOwnerId = null;
     const owner = this.getRewardPlayerForSource(source) || this.player;
     const rewardText = this.rewardSystem.grantObjectiveGuardianReward(owner, objective);
     const ownerName = owner === this.player ? "you" : owner.displayName || "AI";
-    this.addToast(`${objective.label} guardian defeated by ${ownerName}. Hold the circle to claim it: ${rewardText}.`);
+    this.addToast(`${objective.label} guardian defeated by ${ownerName}. The capture zone is active: ${rewardText}.`);
     this.addFloatingText(objective.x, objective.y - 64, "Guardian down", "#e7bd58");
+    this.addFloatingText(objective.x, objective.y - 92, "Capture now", "#63d46b");
+    this.spawnBaseEffect({
+      type: "pulse",
+      x: objective.x,
+      y: objective.y,
+      color: "#63d46b",
+      radius: objective.radius + (CONFIG.objectiveRules?.captureRadiusBonus || 0),
+      life: 0.9,
+      maxLife: 0.9
+    });
     this.spawnDroppedLoot(objective.x, objective.y, this.rewardSystem.createObjectiveLoot(objective));
   }
 
@@ -2732,7 +2968,7 @@ export class GameScene {
       this.addFloatingText(mob.x, mob.y - 48, "Loot dropped", "#72d8e8");
     }
     if (owner === this.player || distance(this.player, mob) < 900) {
-      this.addFloatingText(mob.x, mob.y - 26, `+${reward.xp} XP +${reward.gold}g`, "#e7bd58");
+      this.addFloatingText(mob.x, mob.y - 26, `+${reward.xp} XP +${reward.gold}g +${reward.resources}b`, "#e7bd58");
     }
   }
 
@@ -4161,11 +4397,12 @@ export class GameScene {
         ctx.setLineDash([]);
         ctx.restore();
       }
-      ctx.fillStyle = objective.captured ? "rgba(92, 72, 45, 0.22)" : "rgba(246,242,232,0.06)";
+      const captureRadius = objective.radius + (!objective.alive && !objective.captured ? CONFIG.objectiveRules?.captureRadiusBonus || 0 : 0);
+      ctx.fillStyle = objective.captured ? "rgba(92, 72, 45, 0.22)" : !objective.alive ? "rgba(99,212,107,0.08)" : "rgba(246,242,232,0.06)";
       ctx.strokeStyle = color;
       ctx.lineWidth = 4;
       ctx.beginPath();
-      ctx.arc(objective.x, objective.y, objective.radius, 0, Math.PI * 2);
+      ctx.arc(objective.x, objective.y, captureRadius, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
 
@@ -4173,7 +4410,7 @@ export class GameScene {
         ctx.strokeStyle = "#f6f2e8";
         ctx.lineWidth = 7;
         ctx.beginPath();
-        ctx.arc(objective.x, objective.y, objective.radius + 8, -Math.PI / 2, -Math.PI / 2 + objective.progressRatio * Math.PI * 2);
+        ctx.arc(objective.x, objective.y, captureRadius + 8, -Math.PI / 2, -Math.PI / 2 + objective.progressRatio * Math.PI * 2);
         ctx.stroke();
       }
 
@@ -4187,7 +4424,9 @@ export class GameScene {
             ? objective.captured
               ? "CLAIMED"
               : `GUARD L${objective.scaleLevel}`
-            : objective.type.toUpperCase();
+            : objective.captureReady
+              ? "CAPTURE"
+              : objective.type.toUpperCase();
       ctx.fillText(objectiveText, objective.x, objective.y + 5);
       ctx.restore();
       if (objective.alive) {
@@ -4311,6 +4550,43 @@ export class GameScene {
     for (const building of this.base.buildings) {
       if (!building.alive) {
         continue;
+      }
+      const isHovered = building === this.hoveredBaseBuilding;
+      if (isHovered) {
+        ctx.save();
+        ctx.strokeStyle = "rgba(114, 216, 232, 0.95)";
+        ctx.fillStyle = "rgba(114, 216, 232, 0.12)";
+        ctx.lineWidth = 5;
+        ctx.setLineDash([14, 8]);
+        if (building.type === "wall") {
+          const pad = 13;
+          roundRect(
+            ctx,
+            building.x - (building.width || 34) / 2 - pad,
+            building.y - (building.height || 34) / 2 - pad,
+            (building.width || 34) + pad * 2,
+            (building.height || 34) + pad * 2,
+            8
+          );
+          ctx.fill();
+          ctx.stroke();
+        } else {
+          const radius = (building.radius || 28) + 18;
+          ctx.beginPath();
+          ctx.arc(building.x, building.y, radius, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+        ctx.fillStyle = "#dffcff";
+        ctx.strokeStyle = "rgba(0,0,0,0.72)";
+        ctx.lineWidth = 4;
+        ctx.font = "950 16px ui-monospace, SFMono-Regular, Consolas, monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.strokeText("B Upgrade", building.x, building.y - (building.radius || 30) - 34);
+        ctx.fillText("B Upgrade", building.x, building.y - (building.radius || 30) - 34);
+        ctx.restore();
       }
       ctx.save();
       ctx.translate(building.x, building.y);
@@ -4793,26 +5069,32 @@ export class GameScene {
   }
 
   drawFloatingTexts(ctx) {
+    const textConfig = CONFIG.combat?.damageNumbers || {};
+    const textFontSize = textConfig.textFontSize || 20;
+    const hitFontSize = textConfig.hitFontSize || 24;
     for (const text of this.floatingTexts) {
       ctx.save();
       const alpha = Math.max(0, Math.min(1, text.life / Math.max(0.01, text.maxLife || 1)));
       ctx.globalAlpha = alpha;
       ctx.fillStyle = text.color;
-      ctx.font = text.kind === "text" ? "900 16px system-ui, sans-serif" : "950 18px ui-monospace, SFMono-Regular, Consolas, monospace";
+      ctx.font = text.kind === "text"
+        ? `900 ${textFontSize}px system-ui, sans-serif`
+        : `950 ${hitFontSize}px ui-monospace, SFMono-Regular, Consolas, monospace`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       if (text.kind !== "text") {
-        const width = Math.max(34, ctx.measureText(text.label).width + 18);
+        const boxHeight = Math.max(34, Math.ceil(hitFontSize * 1.48));
+        const width = Math.max(48, ctx.measureText(text.label).width + 26);
         ctx.fillStyle = "rgba(39, 17, 8, 0.82)";
-        roundRect(ctx, text.x - width / 2, text.y - 13, width, 26, 6);
+        roundRect(ctx, text.x - width / 2, text.y - boxHeight / 2, width, boxHeight, 8);
         ctx.fill();
         ctx.strokeStyle = "rgba(255, 248, 232, 0.28)";
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 1.5;
         ctx.stroke();
       }
       ctx.fillStyle = text.color;
       ctx.strokeStyle = "rgba(0,0,0,0.72)";
-      ctx.lineWidth = 3;
+      ctx.lineWidth = text.kind === "text" ? 3 : 4;
       ctx.strokeText(text.label, text.x, text.y);
       ctx.fillText(text.label, text.x, text.y);
       ctx.restore();
@@ -4992,8 +5274,21 @@ export class GameScene {
     ctx.save();
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.strokeStyle = "rgba(154,129,93,0.74)";
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(95,76,48,0.72)";
+    ctx.lineWidth = 4;
+    for (const path of this.map.paths || []) {
+      ctx.beginPath();
+      path.forEach((point, index) => {
+        if (index === 0) {
+          ctx.moveTo(mx(point.x), my(point.y));
+        } else {
+          ctx.lineTo(mx(point.x), my(point.y));
+        }
+      });
+      ctx.stroke();
+    }
+    ctx.strokeStyle = "rgba(216,180,107,0.82)";
+    ctx.lineWidth = 2.4;
     for (const path of this.map.paths || []) {
       ctx.beginPath();
       path.forEach((point, index) => {
@@ -5036,7 +5331,7 @@ export class GameScene {
 
     for (const bridge of this.map.bridges || []) {
       ctx.fillStyle = "#d8b46b";
-      ctx.fillRect(mx(bridge.x) - 3, my(bridge.y) - 2, 6, 4);
+      ctx.fillRect(mx(bridge.x) - 4, my(bridge.y) - 3, 8, 6);
     }
 
     if (this.exploredCanvas) {
@@ -5768,6 +6063,33 @@ function distanceToSegment(point, a, b) {
   return Math.hypot(point.x - x, point.y - y);
 }
 
+function withSeededRandom(seed, callback) {
+  if (!seed) {
+    return callback();
+  }
+  const previousRandom = Math.random;
+  Math.random = seededRandom(seed);
+  try {
+    return callback();
+  } finally {
+    Math.random = previousRandom;
+  }
+}
+
+function seededRandom(seed) {
+  let state = 2166136261;
+  const text = String(seed);
+  for (let index = 0; index < text.length; index += 1) {
+    state ^= text.charCodeAt(index);
+    state = Math.imul(state, 16777619);
+  }
+  state >>>= 0;
+  return () => {
+    state = Math.imul(1664525, state) + 1013904223;
+    return (state >>> 0) / 4294967296;
+  };
+}
+
 function drawHealthBar(ctx, x, y, width, ratio, color) {
   ctx.save();
   ctx.fillStyle = "rgba(0,0,0,0.48)";
@@ -5801,18 +6123,25 @@ function drawLevelBadge(ctx, x, y, text, color = "#e7bd58") {
   if (!CONFIG.levelDisplay?.enabled) {
     return;
   }
+  const fontSize = CONFIG.levelDisplay?.badgeFontSize || 13;
+  const badgeHeight = CONFIG.levelDisplay?.badgeHeight || 24;
+  const paddingX = CONFIG.levelDisplay?.badgePaddingX || 18;
   ctx.save();
-  ctx.font = "900 10px system-ui, sans-serif";
+  ctx.font = `950 ${fontSize}px system-ui, sans-serif`;
   ctx.textAlign = "center";
-  const width = Math.max(28, ctx.measureText(text).width + 12);
+  ctx.textBaseline = "middle";
+  const width = Math.max(40, ctx.measureText(text).width + paddingX);
   ctx.fillStyle = "rgba(13,19,14,0.88)";
-  roundRect(ctx, x - width / 2, y - 9, width, 18, 6);
+  roundRect(ctx, x - width / 2, y - badgeHeight / 2, width, badgeHeight, 7);
   ctx.fill();
   ctx.strokeStyle = color;
   ctx.lineWidth = 2;
   ctx.stroke();
   ctx.fillStyle = color;
-  ctx.fillText(text, x, y + 4);
+  ctx.strokeStyle = "rgba(0,0,0,0.58)";
+  ctx.lineWidth = 3;
+  ctx.strokeText(text, x, y + 1);
+  ctx.fillText(text, x, y + 1);
   ctx.restore();
 }
 
@@ -5829,10 +6158,6 @@ function roundRect(ctx, x, y, width, height, radius) {
   ctx.quadraticCurveTo(x, y, x + radius, y);
   ctx.closePath();
 }
-
-
-
-
 
 
 

@@ -30,8 +30,6 @@ You can also open `index.html` directly in a browser, though the local server is
 
 ## Live Hosting
 
-Multiplayer room work is intentionally paused while the solo AI loop is tested. The small room API in `server.js` is still in the repo for later, but the main menu currently routes playtesting through Solo Test plus configurable AI opponents.
-
 The main menu shows a **Shareable Game URL** helper. If it says the current page is static/local only, start the multiplayer server or use a deployed Node URL before sharing room codes.
 
 When the app is running on the Node server, creating a room generates an invite link like:
@@ -42,18 +40,22 @@ https://your-basebound-site.onrender.com/?room=ABCDE
 
 The host can copy that link from the room panel. A guest opening it from anywhere will be routed into that room flow automatically.
 
-Recommended prototype deployment:
+The current online mode is an alpha room-sync layer: it synchronizes room membership, start state, player position/status, selected class, and base snapshots over the Node server using server-sent events. It also shares the same generated map seed so hosted clients load the same world. Full server-authoritative combat, mobs, objectives, loot, and anti-cheat should be the next multiplayer milestone before larger public tests.
+
+Recommended online deployment:
 
 1. Push this repo to GitHub.
-2. Create a Web Service on Render, Railway, Fly.io, or another Node host.
+2. Create a Node Web Service on Render, Railway, Fly.io, or another Node host. Do not deploy this as a static-only site if you want online rooms.
 3. Use `npm run build:pwa` as the build command.
 4. Use `node server.js` as the start command.
 5. Set environment variables:
    - `STATIC_DIR=dist`
    - `HOST=0.0.0.0`
+   - `MAX_PLAYERS=8`
    - Optional: `PUBLIC_URL=https://your-public-basebound-url`
 
 The included `render.yaml` is ready for a Render Blueprint deployment.
+See `docs/online-deploy.md` for the full friend-test deployment checklist.
 
 ## Controls
 

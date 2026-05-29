@@ -1,5 +1,5 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.43";
+import { CONFIG } from "./config.js?v=1.8.50";
 
 const SCALE = 1 / 80;
 const TILE_WORLD_SIZE = 120;
@@ -40,6 +40,28 @@ const CLASS_PALETTE = Object.freeze({
   warlock: { torso: 0x171022, legs: 0x271833, weapon: 0x8e44ad }
 });
 
+// Mob faction look, keyed by camp type. Drives palette + head/body treatment.
+const MOB_THEMES = Object.freeze({
+  goblin:   { skin: 0x6f9a3e, cloth: 0x4a5a2a, accent: 0x35471f, weapon: 0xb8a06a },
+  rogue:    { skin: 0xb89070, cloth: 0x2f2a22, accent: 0x6a4a2a, weapon: 0xcfd4dd, hooded: true },
+  skeleton: { skin: 0xe6e0cf, cloth: 0x4a4640, accent: 0x26221c, weapon: 0xc9cdd4, bone: true },
+  cultist:  { skin: 0xa07f92, cloth: 0x3a2030, accent: 0x8a2f5a, weapon: 0xc06bd0, hooded: true, robe: true, glow: 0xc06bd0 },
+  brute:    { skin: 0x8a6a4a, cloth: 0x5a4632, accent: 0x3a2c1e, weapon: 0x9aa0a8, fur: true },
+  wraith:   { skin: 0x9fd6e0, cloth: 0x3a5a6a, accent: 0x6fd0e0, weapon: 0x9fe0ec, ghost: true, glow: 0x7fe0f0 }
+});
+
+// Mob silhouette, keyed by archetype. Overall scale (hero base is ~1.8 tall) + body bulk.
+const MOB_SHAPE = Object.freeze({
+  melee:    { scale: 0.80, bulk: 1.00 },
+  ranged:   { scale: 0.76, bulk: 0.92 },
+  brute:    { scale: 0.95, bulk: 1.40 },
+  tank:     { scale: 1.05, bulk: 1.65 },
+  swift:    { scale: 0.74, bulk: 0.92 },
+  skitter:  { scale: 0.52, bulk: 0.85 },
+  summoner: { scale: 0.82, bulk: 1.00 },
+  boss:     { scale: 1.35, bulk: 1.40 }
+});
+
 export class LowPolyRenderer {
   static isAvailable() {
     return Boolean(globalThis.THREE && document.getElementById("threeCanvas"));
@@ -75,6 +97,7 @@ export class LowPolyRenderer {
     this.pickPlane = new this.THREE.Plane(new this.THREE.Vector3(0, 1, 0), 0);
     this.pickNdc = new this.THREE.Vector2();
     this.pickHit = new this.THREE.Vector3();
+    this.projectPoint = new this.THREE.Vector3();
     this.projectilePool = this.createMeshPool(300, new this.THREE.BoxGeometry(0.08, 0.08, 0.72), this.mat(0xf4d36a));
     this.particlePool = this.createMeshPool(600, new this.THREE.BoxGeometry(0.12, 0.12, 0.12), this.mat(0xf0c85d));
     this.textPool = [];
@@ -170,7 +193,10 @@ export class LowPolyRenderer {
     const h = Math.max(1, Math.floor(height));
     if (this.canvas.width !== w || this.canvas.height !== h) {
       this.renderer.setSize(w, h, false);
-      this.camera.aspect = w / h;
+    }
+    const nextAspect = w / h;
+    if (Math.abs((this.camera.aspect || 1) - nextAspect) > 0.0001) {
+      this.camera.aspect = nextAspect;
       this.camera.updateProjectionMatrix();
     }
   }
@@ -240,6 +266,18 @@ export class LowPolyRenderer {
     return {
       x: clampWorld(hit.x / SCALE + CONFIG.world.width / 2, CONFIG.world.width),
       y: clampWorld(hit.z / SCALE + CONFIG.world.height / 2, CONFIG.world.height)
+    };
+  }
+
+  worldToScreen(x, y, height = 0, width = this.canvas?.clientWidth || 1, screenHeight = this.canvas?.clientHeight || 1) {
+    if (!this.enabled || !this.camera || !width || !screenHeight) {
+      return null;
+    }
+    this.projectPoint.copy(this.worldTo3(x, y, height));
+    this.projectPoint.project(this.camera);
+    return {
+      x: (this.projectPoint.x * 0.5 + 0.5) * width,
+      y: (-this.projectPoint.y * 0.5 + 0.5) * screenHeight
     };
   }
 
@@ -340,13 +378,17 @@ export class LowPolyRenderer {
       return { color: PALETTE.bridge, height: 0.04 };
     }
     if (riverDistance < 84) {
-      return { color: PALETTE.water, height: -0.08 };
+      const ripple = (Math.floor(x / 260) + Math.floor(y / 180)) % 3;
+      return { color: ripple === 0 ? 0x28729e : PALETTE.water, height: -0.08 };
     }
     if (riverDistance < 150) {
-      return { color: PALETTE.sand, height: 0.02 };
+      const sandPatch = (Math.floor(x / 220) + Math.floor(y / 260)) % 4;
+      return { color: sandPatch === 0 ? 0xd0b45a : PALETTE.sand, height: 0.02 };
     }
-    if ((map.paths || []).some((path) => distanceToPolyline({ x, y }, path) < 108)) {
-      return { color: PALETTE.path, height: -0.015 };
+    const roadRadius = (CONFIG.mapGeneration?.roadWidth || 92) * 1.35;
+    if ((map.paths || []).some((path) => distanceToPolyline({ x, y }, path) < roadRadius)) {
+      const roadPatch = (Math.floor(x / 180) + Math.floor(y / 220)) % 5;
+      return { color: roadPatch === 0 ? 0xae8a48 : PALETTE.path, height: -0.015 };
     }
     const zone = (map.zones || []).find((entry) => x >= entry.x && x <= entry.x + entry.w && y >= entry.y && y <= entry.y + entry.h);
     if (zone?.type === "mountain") return { color: PALETTE.stone, height: 0.055 };
@@ -473,7 +515,7 @@ export class LowPolyRenderer {
   buildRoadSegments(game) {
     const material = this.mat(PALETTE.path);
     const roadGroup = new this.THREE.Group();
-    const roadWidth = 2.85;
+    const roadWidth = Math.max(3.35, (CONFIG.mapGeneration?.roadWidth || 92) * SCALE * 3);
     for (const path of game.map.paths || []) {
       for (let index = 0; index < path.length - 1; index += 1) {
         const a = path[index];
@@ -805,119 +847,375 @@ export class LowPolyRenderer {
     return this.camera.position.distanceTo(position) <= maxDistance + 35;
   }
 
-  buildCharacterMesh(classId, isLocal = false) {
-    const p = CLASS_PALETTE[classId] || CLASS_PALETTE.ranger;
+  // ---- low-poly mesh helpers (flat-shaded via this.mat; { basic: true } = unlit glow) ----
+  place(object, x, y, z) { object.position.set(x, y, z); return object; }
+  mkBox(w, h, d, color, opts) { return new this.THREE.Mesh(new this.THREE.BoxGeometry(w, h, d), this.mat(color, opts)); }
+  mkCyl(rt, rb, h, seg, color, opts) { return new this.THREE.Mesh(new this.THREE.CylinderGeometry(rt, rb, h, seg), this.mat(color, opts)); }
+  mkCone(r, h, seg, color, opts) { return new this.THREE.Mesh(new this.THREE.ConeGeometry(r, h, seg), this.mat(color, opts)); }
+  mkIco(r, detail, color, opts) { return new this.THREE.Mesh(new this.THREE.IcosahedronGeometry(r, detail), this.mat(color, opts)); }
+
+  // Shared faceted humanoid. Returns the group plus hip/shoulder pivot groups
+  // (legL/legR/armL/armR) the animator swings, and hand anchors that weapons
+  // parent into so they follow the arm. Feet at y=0; head-top ~1.77.
+  buildHumanoidBase(opts) {
+    const T = this.THREE;
+    const skin = opts.skin ?? 0xf0b870;
+    const torsoColor = opts.torso ?? 0x5a4a32;
+    const legColor = opts.legs ?? 0x40331f;
+    const boots = opts.boots ?? 0x241a10;
+    const belt = opts.belt ?? 0x2a2014;
+    const sleeve = opts.sleeve ?? torsoColor;
+    const bulk = opts.bulk ?? 1;
+    const bare = Boolean(opts.bareChest);
+    const g = new T.Group();
+    const hipY = 0.62;
+
+    const makeLeg = (sx) => {
+      const leg = new T.Group();
+      leg.position.set(0.16 * sx, hipY, 0);
+      leg.add(this.place(this.mkBox(0.24, 0.32, 0.26, legColor), 0, -0.17, 0)); // thigh
+      leg.add(this.place(this.mkBox(0.22, 0.30, 0.24, legColor), 0, -0.45, 0)); // shin
+      leg.add(this.place(this.mkBox(0.26, 0.12, 0.34, boots), 0, -0.62, 0.04)); // foot
+      return leg;
+    };
+    const legL = makeLeg(-1);
+    const legR = makeLeg(1);
+
+    g.add(this.place(this.mkBox(0.54 * bulk, 0.16, 0.30, belt), 0, hipY + 0.02, 0));     // pelvis/belt
+    g.add(this.place(this.mkBox(0.62 * bulk, 0.5, 0.34, bare ? skin : torsoColor), 0, 0.92, 0)); // torso
+    if (!bare) g.add(this.place(this.mkBox(0.30, 0.5, 0.02, opts.accent ?? torsoColor), 0, 0.92, 0.17));
+    g.add(this.place(this.mkBox(0.70 * bulk, 0.16, 0.34, bare ? skin : torsoColor), 0, 1.16, 0)); // shoulders
+    g.add(this.place(this.mkCyl(0.09, 0.10, 0.12, 7, skin), 0, 1.28, 0));                 // neck
+    const head = this.mkIco(0.24, 1, skin);
+    head.position.y = 1.52; head.scale.set(0.95, 1.05, 0.95);
+    g.add(head);
+
+    const makeArm = (sx) => {
+      const arm = new T.Group();
+      arm.position.set(0.40 * bulk * sx, 1.16, 0);
+      arm.rotation.z = 0.08 * sx;
+      arm.add(this.place(this.mkBox(0.17, 0.30, 0.19, bare ? skin : torsoColor), 0, -0.16, 0));
+      arm.add(this.place(this.mkBox(0.15, 0.30, 0.17, sleeve), 0, -0.44, 0));
+      arm.add(this.place(this.mkIco(0.10, 0, skin), 0, -0.62, 0.04));
+      const hand = new T.Object3D();
+      hand.position.set(0, -0.62, 0.12);
+      arm.add(hand);
+      return { arm, hand };
+    };
+    const L = makeArm(-1);
+    const R = makeArm(1);
+    g.add(legL, legR, L.arm, R.arm);
+    return { g, legL, legR, armL: L.arm, armR: R.arm, handL: L.hand, handR: R.hand };
+  }
+
+  // ---- shared cosmetics / weapons (local +Y is "up the weapon"; grip near origin) ----
+  mkHood(color) {
+    const h = new this.THREE.Group();
+    h.add(this.place(this.mkBox(0.34, 0.34, 0.36, color), 0, 0, -0.02));
+    h.add(this.place(this.mkCone(0.25, 0.30, 6, color), 0, 0.26, -0.02));
+    h.add(this.place(this.mkBox(0.30, 0.10, 0.06, color), 0, -0.16, 0.18));
+    return h;
+  }
+  mkRobe(color, accent) {
+    const r = new this.THREE.Group();
+    r.add(this.place(this.mkCyl(0.30, 0.52, 0.70, 8, color), 0, 0.35, 0));         // skirt
+    r.add(this.place(this.mkCyl(0.52, 0.54, 0.06, 8, accent ?? color), 0, 0.04, 0)); // hem
+    r.add(this.place(this.mkCyl(0.33, 0.33, 0.14, 8, accent ?? color), 0, 0.66, 0)); // waistband
+    return r;
+  }
+  mkCape(color) {
     const g = new this.THREE.Group();
-    const legL = new this.THREE.Mesh(new this.THREE.BoxGeometry(0.22, 0.58, 0.24), this.mat(p.legs));
-    const legR = legL.clone();
-    legL.position.set(-0.16, 0.29, 0);
-    legR.position.set(0.16, 0.29, 0);
-    const torso = new this.THREE.Mesh(new this.THREE.BoxGeometry(0.68, 0.66, 0.38), this.mat(p.torso));
-    torso.position.y = 0.88;
-    const belt = new this.THREE.Mesh(new this.THREE.BoxGeometry(0.72, 0.1, 0.42), this.mat(PALETTE.wall));
-    belt.position.y = 0.64;
-    const armL = new this.THREE.Mesh(new this.THREE.BoxGeometry(0.22, 0.54, 0.22), this.mat(p.torso));
-    const armR = armL.clone();
-    armL.position.set(-0.46, 0.88, 0);
-    armR.position.set(0.46, 0.88, 0);
-    const head = new this.THREE.Mesh(new this.THREE.BoxGeometry(0.5, 0.48, 0.46), this.mat(0xf0b870));
-    head.position.y = 1.52;
-    const hair = new this.THREE.Mesh(new this.THREE.BoxGeometry(0.54, 0.18, 0.5), this.mat(classId === "warlock" ? 0xeeeeee : 0x5a3115));
-    hair.position.y = 1.79;
-    const weapon = this.buildWeapon(classId, p.weapon);
-    g.add(legL, legR, torso, belt, armL, armR, head, hair, weapon);
+    g.add(this.place(this.mkBox(0.5, 0.8, 0.05, color), 0, -0.25, -0.02));
+    g.rotation.x = 0.12;
+    return g;
+  }
+  mkBow() {
+    const g = new this.THREE.Group();
+    const wood = 0x6b4a26;
+    g.add(this.place(this.mkCyl(0.03, 0.03, 0.5, 5, wood), 0, 0.18, 0));
+    const top = this.place(this.mkCyl(0.025, 0.03, 0.28, 5, wood), 0, 0.5, -0.06); top.rotation.x = 0.5; g.add(top);
+    const bot = this.place(this.mkCyl(0.025, 0.03, 0.28, 5, wood), 0, -0.14, -0.06); bot.rotation.x = -0.5; g.add(bot);
+    g.add(this.place(this.mkBox(0.01, 0.86, 0.01, 0xe8e0c0), 0, 0.18, 0.09));
+    return g;
+  }
+  mkSword(blade, hilt) {
+    const g = new this.THREE.Group();
+    g.add(this.place(this.mkBox(0.10, 0.66, 0.04, blade), 0, 0.42, 0));
+    g.add(this.place(this.mkCone(0.07, 0.13, 4, blade), 0, 0.80, 0));
+    g.add(this.place(this.mkBox(0.28, 0.07, 0.07, hilt), 0, 0.08, 0));
+    g.add(this.place(this.mkCyl(0.04, 0.04, 0.16, 6, hilt), 0, -0.02, 0));
+    return g;
+  }
+  mkShield(face, rim) {
+    const g = new this.THREE.Group();
+    g.add(this.place(this.mkBox(0.46, 0.58, 0.06, face), 0, 0, 0));
+    g.add(this.place(this.mkBox(0.52, 0.09, 0.05, rim), 0, 0.28, 0.02));
+    g.add(this.place(this.mkBox(0.52, 0.09, 0.05, rim), 0, -0.28, 0.02));
+    g.add(this.place(this.mkIco(0.08, 0, rim), 0, 0, 0.06));
+    return g;
+  }
+  mkStaff(shaft, orb) {
+    const g = new this.THREE.Group();
+    g.add(this.place(this.mkCyl(0.035, 0.045, 1.15, 6, shaft), 0, 0.32, 0));
+    g.add(this.place(this.mkIco(0.12, 0, orb, { basic: true }), 0, 0.95, 0));
+    return g;
+  }
+  mkDagger(blade, hilt) {
+    const g = new this.THREE.Group();
+    g.add(this.place(this.mkBox(0.06, 0.32, 0.03, blade), 0, 0.2, 0));
+    g.add(this.place(this.mkCone(0.045, 0.10, 4, blade), 0, 0.4, 0));
+    g.add(this.place(this.mkBox(0.16, 0.05, 0.05, hilt), 0, 0.02, 0));
+    g.add(this.place(this.mkCyl(0.03, 0.03, 0.12, 6, hilt), 0, -0.05, 0));
+    return g;
+  }
+  mkSpear() {
+    const g = new this.THREE.Group();
+    g.add(this.place(this.mkCyl(0.03, 0.035, 1.5, 6, 0x6b4a26), 0, 0.4, 0));
+    g.add(this.place(this.mkCone(0.07, 0.32, 5, 0xb8bcc4), 0, 1.3, 0));
+    g.add(this.place(this.mkBox(0.16, 0.05, 0.05, 0xb8bcc4), 0, 1.08, 0));
+    return g;
+  }
+  mkCleaver(blade) {
+    const g = new this.THREE.Group();
+    g.add(this.place(this.mkCyl(0.04, 0.045, 0.62, 6, 0x3a2a18), 0, 0.18, 0));
+    g.add(this.place(this.mkBox(0.32, 0.46, 0.05, blade), 0.10, 0.62, 0));
+    return g;
+  }
+  mkLauncher(body, accent) {
+    const g = new this.THREE.Group();
+    g.add(this.place(this.mkBox(0.16, 0.16, 0.46, body), 0, 0, 0));
+    const barrel = this.place(this.mkCyl(0.05, 0.06, 0.28, 7, accent), 0, 0.02, 0.32); barrel.rotation.x = Math.PI / 2; g.add(barrel);
+    g.add(this.place(this.mkBox(0.10, 0.20, 0.10, body), 0, -0.15, -0.08));
+    g.add(this.place(this.mkIco(0.05, 0, 0x55ccff, { basic: true }), 0, 0.05, 0.48));
+    return g;
+  }
+
+  buildCharacterMesh(classId, isLocal = false) {
+    const T = this.THREE;
+    let base;
+
+    switch (classId) {
+      case "guardian": {
+        base = this.buildHumanoidBase({ skin: 0xbf9468, torso: 0x6f7884, legs: 0x4a525c, boots: 0x2b2f36, accent: 0x9aa3b0, sleeve: 0x5a626c, belt: 0x3a3f47, bulk: 1.18 });
+        const helm = new T.Group();
+        helm.add(this.place(this.mkBox(0.34, 0.30, 0.36, 0x8a93a0), 0, 0.02, 0));
+        helm.add(this.place(this.mkBox(0.30, 0.10, 0.04, 0x222222), 0, -0.06, 0.18));
+        helm.add(this.place(this.mkCone(0.06, 0.16, 4, 0xc8a24a), 0, 0.22, 0));
+        base.g.add(this.place(helm, 0, 1.52, 0));
+        for (const s of [-1, 1]) { const pp = this.mkIco(0.17, 0, 0x8a93a0); pp.position.set(0.42 * s, 1.18, 0); pp.scale.set(1, 0.7, 1); base.g.add(pp); }
+        base.handR.add(this.mkSword(0xc6ccd4, 0x4a3320));
+        const shield = this.mkShield(0x5a6470, 0xc8a24a); shield.rotation.y = Math.PI / 2; base.handL.add(shield);
+        break;
+      }
+      case "engineer": {
+        base = this.buildHumanoidBase({ skin: 0xc2966a, torso: 0x7a5a32, legs: 0x5a4628, boots: 0x2e2316, accent: 0xc8902f, sleeve: 0x8a6a3a, belt: 0x3a2c18 });
+        base.g.add(this.place(this.mkCyl(0.24, 0.26, 0.12, 8, 0xc8902f), 0, 1.72, 0)); // hard hat
+        const gog = new T.Group();
+        gog.add(this.place(this.mkBox(0.40, 0.07, 0.05, 0x3a2c18), 0, 0, 0.02));
+        for (const s of [-1, 1]) gog.add(this.place(this.mkIco(0.07, 0, 0x66ddff, { basic: true }), 0.10 * s, 0, 0.05));
+        base.g.add(this.place(gog, 0, 1.52, 0.18));
+        const pack = new T.Group();
+        pack.add(this.place(this.mkBox(0.30, 0.38, 0.18, 0x6b6058), 0, 0, 0));
+        pack.add(this.place(this.mkIco(0.07, 0, 0x77cc66, { basic: true }), 0.08, 0.12, 0.12));
+        base.g.add(this.place(pack, 0, 1.0, -0.22));
+        const launcher = this.mkLauncher(0x55504a, 0xc8a24a); launcher.rotation.x = -0.4; base.handR.add(launcher);
+        break;
+      }
+      case "shadowblade": {
+        base = this.buildHumanoidBase({ skin: 0xb89070, torso: 0x2a2636, legs: 0x201d2c, boots: 0x14121c, accent: 0x6a4fa0, sleeve: 0x241f30, belt: 0x4a3f6a });
+        base.g.add(this.place(this.mkHood(0x231f30), 0, 1.52, 0.06));
+        base.g.add(this.place(this.mkBox(0.24, 0.10, 0.05, 0x6a4fa0, { basic: true }), 0, 1.46, 0.20)); // glowing mask
+        base.g.add(this.place(this.mkCape(0x201d2c), 0, 1.28, -0.18));
+        const dR = this.mkDagger(0xcfd4dd, 0x2a2636); dR.rotation.x = Math.PI; base.handR.add(dR);
+        const dL = this.mkDagger(0xcfd4dd, 0x2a2636); dL.rotation.x = Math.PI; base.handL.add(dL);
+        break;
+      }
+      case "arcanist": {
+        base = this.buildHumanoidBase({ skin: 0xceaa82, torso: 0x2f4f8a, legs: 0x2f4f8a, boots: 0x1c2c4a });
+        base.g.add(this.mkRobe(0x2f4f8a, 0x7fa8e0));
+        const hat = new T.Group();
+        hat.add(this.place(this.mkCyl(0.30, 0.33, 0.05, 8, 0x24407a), 0, -0.02, 0));
+        hat.add(this.place(this.mkCone(0.20, 0.5, 7, 0x2f4f8a), 0, 0.24, 0));
+        hat.add(this.place(this.mkIco(0.05, 0, 0x9fd0ff, { basic: true }), 0, 0.48, 0));
+        base.g.add(this.place(hat, 0, 1.66, 0));
+        base.handR.add(this.mkStaff(0x4a3a6a, 0x9fd0ff));
+        break;
+      }
+      case "berserker": {
+        base = this.buildHumanoidBase({ bareChest: true, skin: 0xc28a5e, legs: 0x5a3a22, boots: 0x2e2012, belt: 0x3a2814, bulk: 1.15 });
+        base.g.add(this.place(this.mkBox(0.24, 0.05, 0.02, 0xc4392f), 0, 1.54, 0.22)); // war paint
+        for (const s of [-1, 1]) { const fur = this.mkIco(0.20, 0, 0x6b4a2a); fur.position.set(0.42 * s, 1.18, 0); fur.scale.set(1.1, 0.6, 1.1); base.g.add(fur); }
+        const helm = new T.Group();
+        helm.add(this.place(this.mkBox(0.30, 0.20, 0.34, 0x4a4a4a), 0, 0.04, 0));
+        for (const s of [-1, 1]) { const horn = this.place(this.mkCone(0.05, 0.26, 5, 0xe8dcc0), 0.16 * s, 0.16, 0); horn.rotation.z = -0.7 * s; helm.add(horn); }
+        base.g.add(this.place(helm, 0, 1.54, 0));
+        base.handR.add(this.mkCleaver(0x9aa0a8));
+        break;
+      }
+      case "druid": {
+        base = this.buildHumanoidBase({ skin: 0xb89a6a, torso: 0x4a6b3a, legs: 0x3a5230, boots: 0x2c3a1e });
+        base.g.add(this.mkRobe(0x4a6b3a, 0x6b8a4a));
+        base.g.add(this.place(this.mkHood(0x3a5230), 0, 1.52, 0.06));
+        const antlers = new T.Group();
+        for (const s of [-1, 1]) {
+          const b = this.place(this.mkCyl(0.02, 0.03, 0.3, 5, 0x8a6a3a), 0.10 * s, 0.1, -0.05); b.rotation.z = 0.5 * s; antlers.add(b);
+          const t = this.place(this.mkCyl(0.015, 0.02, 0.18, 5, 0x8a6a3a), 0.20 * s, 0.28, -0.05); t.rotation.z = 0.9 * s; antlers.add(t);
+        }
+        base.g.add(this.place(antlers, 0, 1.62, 0));
+        const st = new T.Group();
+        st.add(this.place(this.mkCyl(0.04, 0.05, 1.15, 6, 0x5a3f22), 0, 0.32, 0));
+        for (let i = 0; i < 5; i += 1) st.add(this.place(this.mkIco(0.09, 0, 0x6fae4a), 0.1 * Math.cos(i * 1.3), 0.92 + (i % 2) * 0.05, 0.1 * Math.sin(i * 1.3)));
+        st.add(this.place(this.mkIco(0.07, 0, 0x9fe07a, { basic: true }), 0, 0.98, 0));
+        base.handR.add(st);
+        break;
+      }
+      case "sentinel": {
+        base = this.buildHumanoidBase({ skin: 0xbf9468, torso: 0x4a6f70, legs: 0x3a4f50, boots: 0x232f30, accent: 0xc8a24a, sleeve: 0x3f5f60, belt: 0x2e3e3f, bulk: 1.08 });
+        const helm = new T.Group();
+        helm.add(this.place(this.mkBox(0.32, 0.30, 0.36, 0x8a93a0), 0, 0.02, 0));
+        helm.add(this.place(this.mkBox(0.30, 0.08, 0.04, 0x222222), 0, -0.04, 0.18));
+        helm.add(this.place(this.mkBox(0.04, 0.16, 0.30, 0xc4392f), 0, 0.22, 0)); // crest
+        base.g.add(this.place(helm, 0, 1.52, 0));
+        base.handR.add(this.mkSpear());
+        const shield = this.mkShield(0x4a6f70, 0xc8a24a); shield.children[0].scale.set(0.9, 1.4, 1); shield.rotation.y = Math.PI / 2; base.handL.add(shield);
+        break;
+      }
+      case "warlock": {
+        base = this.buildHumanoidBase({ skin: 0xb0a0a8, torso: 0x33223f, legs: 0x281a30, boots: 0x1a1020 });
+        base.g.add(this.mkRobe(0x33223f, 0x6a2f6a));
+        base.g.add(this.place(this.mkHood(0x281a30), 0, 1.52, 0.06));
+        base.g.add(this.place(this.mkCape(0x231630), 0, 1.28, -0.18));
+        const st = new T.Group();
+        st.add(this.place(this.mkCyl(0.035, 0.045, 1.15, 6, 0x2a1a30), 0, 0.32, 0));
+        st.add(this.place(this.mkIco(0.11, 0, 0xe8e0d0), 0, 0.92, 0)); // skull
+        st.add(this.place(this.mkIco(0.14, 0, 0x9b4fd0, { basic: true }), 0, 0.92, 0)); // soul glow
+        base.handR.add(st);
+        const wisp = this.mkIco(0.10, 0, 0x9b4fd0, { basic: true }); wisp.position.set(0.5, 1.2, 0.2); base.g.add(wisp);
+        break;
+      }
+      case "ranger":
+      default: {
+        base = this.buildHumanoidBase({ skin: 0xc89b6e, torso: 0x3f6b3a, legs: 0x4a5a30, boots: 0x2a2012, accent: 0x2e4d2a, sleeve: 0x355c30, belt: 0x6b4a26 });
+        base.g.add(this.place(this.mkHood(0x2e4d2a), 0, 1.52, 0.06));
+        base.handL.add(this.mkBow());
+        const quiver = this.place(this.mkCyl(0.07, 0.08, 0.32, 6, 0x4a3320), 0.12, 1.25, -0.20);
+        quiver.rotation.set(0.3, 0, 0.4); base.g.add(quiver);
+        break;
+      }
+    }
+
+    const g = base.g;
     if (isLocal) {
-      const halo = new this.THREE.Mesh(new this.THREE.TorusGeometry(0.55, 0.03, 6, 24), this.mat(0x72d8e8, { transparent: true, opacity: 0.85 }));
+      const halo = new T.Mesh(new T.TorusGeometry(0.55, 0.03, 6, 24), this.mat(0x72d8e8, { transparent: true, opacity: 0.85 }));
       halo.rotation.x = Math.PI / 2;
       halo.position.y = 0.05;
       g.add(halo);
     }
-    this.addHpBar(g, 2.22);
-    this.addNameTag(g, isLocal ? "You" : "AI", 2.56);
-    g.userData.legL = legL;
-    g.userData.legR = legR;
-    g.userData.armL = armL;
-    g.userData.armR = armR;
+    this.addHpBar(g, 2.25);
+    this.addNameTag(g, isLocal ? "You" : "AI", 2.6);
+    g.userData.legL = base.legL;
+    g.userData.legR = base.legR;
+    g.userData.armL = base.armL;
+    g.userData.armR = base.armR;
     return g;
   }
 
-  buildWeapon(classId, color) {
+  // Resolve a mob to one of the 8 archetypes. Real camp mobs use `archetype`;
+  // summoned defenders pass `variant` (with "fast" meaning swift).
+  mobArchetype(mob) {
+    if (mob.isBoss) return "boss";
+    const a = mob.archetype || mob.variant || "melee";
+    if (a === "fast") return "swift";
+    return MOB_SHAPE[a] ? a : "melee";
+  }
+
+  // Spectral floating body for wraith-camp mobs (no legs; glides).
+  buildWraith(theme) {
     const g = new this.THREE.Group();
-    const material = this.mat(color);
-    if (classId === "guardian") {
-      const shield = new this.THREE.Mesh(new this.THREE.CylinderGeometry(0.22, 0.22, 0.08, 6), this.mat(0x9db8d6));
-      shield.rotation.z = Math.PI / 2;
-      shield.position.set(-0.62, 0.95, -0.03);
-      const sword = new this.THREE.Mesh(new this.THREE.BoxGeometry(0.08, 0.8, 0.08), material);
-      sword.position.set(0.6, 1.02, 0);
-      g.add(shield, sword);
-    } else if (classId === "sentinel") {
-      const spear = new this.THREE.Mesh(new this.THREE.CylinderGeometry(0.035, 0.035, 1.35, 6), material);
-      spear.rotation.z = -0.2;
-      spear.position.set(0.62, 0.96, 0);
-      g.add(spear);
-    } else if (classId === "berserker") {
-      const haft = new this.THREE.Mesh(new this.THREE.CylinderGeometry(0.04, 0.04, 0.92, 6), this.mat(PALETTE.wood));
-      const head = new this.THREE.Mesh(new this.THREE.BoxGeometry(0.38, 0.22, 0.08), material);
-      haft.position.set(0.6, 0.92, 0);
-      head.position.set(0.6, 1.36, 0);
-      g.add(haft, head);
-    } else {
-      const staff = new this.THREE.Mesh(new this.THREE.CylinderGeometry(0.04, 0.04, 1.05, 6), material);
-      staff.position.set(0.6, 1.02, 0);
-      g.add(staff);
-    }
+    const ghost = { transparent: true, opacity: 0.7 };
+    g.add(this.place(this.mkCyl(0.30, 0.04, 1.0, 7, theme.cloth, ghost), 0, 0.55, 0));   // tapered shroud
+    g.add(this.place(this.mkBox(0.5, 0.4, 0.34, theme.cloth, ghost), 0, 1.06, 0));        // shoulders
+    for (const s of [-1, 1]) g.add(this.place(this.mkCyl(0.07, 0.02, 0.5, 5, theme.cloth, ghost), 0.32 * s, 0.98, 0)); // wispy arms
+    g.add(this.place(this.mkIco(0.20, 0, theme.skin, { transparent: true, opacity: 0.85 }), 0, 1.4, 0)); // skull
+    for (const s of [-1, 1]) g.add(this.place(this.mkBox(0.06, 0.06, 0.04, 0x0a1a20), 0.07 * s, 1.41, 0.16)); // eye sockets
+    g.add(this.place(this.mkIco(0.13, 0, theme.glow || theme.accent, { basic: true }), 0, 1.02, 0)); // soul core
     return g;
+  }
+
+  // Hand the right archetype weapon to the humanoid base, reusing hero builders.
+  addMobWeapon(base, arch, theme) {
+    switch (arch) {
+      case "ranged": base.handL.add(this.mkBow()); break;
+      case "summoner": base.handR.add(this.mkStaff(theme.accent, theme.glow || 0xb391f0)); break;
+      case "brute": base.handR.add(this.mkCleaver(theme.weapon)); break;
+      case "boss": base.handR.add(this.mkCleaver(theme.weapon)); break;
+      case "tank": {
+        base.handR.add(this.mkSword(theme.weapon, theme.accent));
+        const shield = this.mkShield(theme.cloth, theme.accent); shield.rotation.y = Math.PI / 2; base.handL.add(shield);
+        break;
+      }
+      case "swift": {
+        const dR = this.mkDagger(theme.weapon, theme.accent); dR.rotation.x = Math.PI; base.handR.add(dR);
+        const dL = this.mkDagger(theme.weapon, theme.accent); dL.rotation.x = Math.PI; base.handL.add(dL);
+        break;
+      }
+      case "skitter": break; // bare claws, tiny swarmer
+      case "melee":
+      default: base.handR.add(this.mkSword(theme.weapon, theme.accent)); break;
+    }
   }
 
   buildMobView(mob) {
-    const lod = new this.THREE.LOD();
-    const color = mob.isBoss
-      ? 0x8e44ad
-      : mob.variant === "ranged"
-        ? 0xb997f4
-        : mob.variant === "tank" || mob.variant === "brute"
-          ? 0x7a6b59
-          : mob.variant === "fast"
-            ? 0xd6b657
-            : mob.variant === "summoner"
-              ? 0x2f8c83
-              : 0x9b5136;
-    const high = new this.THREE.Group();
-    const shadow = new this.THREE.Mesh(new this.THREE.TorusGeometry(mob.isBoss ? 0.68 : 0.43, 0.03, 5, 22), this.mat(0x10160e, { transparent: true, opacity: 0.52 }));
+    const T = this.THREE;
+    const arch = this.mobArchetype(mob);
+    const theme = MOB_THEMES[mob.campType] || MOB_THEMES.goblin;
+    const shape = MOB_SHAPE[arch] || MOB_SHAPE.melee;
+    const isElite = Boolean(mob.isElite || mob.elite || (typeof mob.tier === "number" && mob.tier >= 4));
+
+    const lod = new T.LOD();
+    const high = new T.Group();
+    const shadow = new T.Mesh(new T.TorusGeometry(0.4 * shape.bulk * shape.scale + (arch === "boss" ? 0.22 : 0.08), 0.03, 5, 22), this.mat(0x10160e, { transparent: true, opacity: theme.ghost ? 0.3 : 0.5 }));
     shadow.rotation.x = Math.PI / 2;
     shadow.position.y = 0.04;
-    const legL = new this.THREE.Mesh(new this.THREE.BoxGeometry(0.18, 0.38, 0.18), this.mat(0x362719));
-    const legR = legL.clone();
-    legL.position.set(-0.15, 0.2, 0);
-    legR.position.set(0.15, 0.2, 0);
-    const body = new this.THREE.Mesh(new this.THREE.BoxGeometry(mob.isBoss ? 0.95 : 0.62, mob.isBoss ? 1.05 : 0.72, mob.isBoss ? 0.72 : 0.48), this.mat(color));
-    body.position.y = mob.isBoss ? 0.92 : 0.66;
-    const head = new this.THREE.Mesh(new this.THREE.BoxGeometry(mob.isBoss ? 0.68 : 0.44, mob.isBoss ? 0.56 : 0.42, mob.isBoss ? 0.62 : 0.4), this.mat(mob.isBoss ? 0xd0a45e : 0xc48a56));
-    head.position.y = mob.isBoss ? 1.62 : 1.22;
-    const armL = new this.THREE.Mesh(new this.THREE.BoxGeometry(0.18, 0.48, 0.18), this.mat(color));
-    const armR = armL.clone();
-    armL.position.set(-0.45, mob.isBoss ? 0.9 : 0.72, 0);
-    armR.position.set(0.45, mob.isBoss ? 0.9 : 0.72, 0);
-    high.add(shadow, legL, legR, body, head, armL, armR);
-    if (mob.variant === "ranged" || mob.variant === "summoner") {
-      const staff = new this.THREE.Mesh(new this.THREE.CylinderGeometry(0.035, 0.035, 0.9, 6), this.mat(0x4b2f7a));
-      staff.position.set(0.45, 0.8, 0);
-      high.add(staff);
+    high.add(shadow);
+
+    let bodyGroup;
+    if (theme.ghost) {
+      bodyGroup = this.buildWraith(theme);
+      bodyGroup.scale.setScalar(shape.scale);
+      high.add(bodyGroup);
     } else {
-      const blade = new this.THREE.Mesh(new this.THREE.BoxGeometry(0.08, 0.52, 0.08), this.mat(0xd8c080));
-      blade.position.set(0.48, 0.82, 0);
-      high.add(blade);
+      const base = this.buildHumanoidBase({ skin: theme.skin, torso: theme.cloth, legs: theme.cloth, boots: theme.accent, belt: theme.accent, sleeve: theme.cloth, accent: theme.accent, bulk: shape.bulk });
+      bodyGroup = base.g;
+      bodyGroup.scale.setScalar(shape.scale);
+      high.add(bodyGroup);
+      if (theme.bone) for (const s of [-1, 1]) bodyGroup.add(this.place(this.mkBox(0.07, 0.08, 0.04, 0x161210), 0.07 * s, 1.54, 0.21)); // skull eyes
+      if (theme.hooded) bodyGroup.add(this.place(this.mkHood(theme.cloth), 0, 1.52, 0.06));
+      if (theme.robe) bodyGroup.add(this.mkRobe(theme.cloth, theme.accent));
+      if (theme.fur) for (const s of [-1, 1]) { const f = this.mkIco(0.18, 0, theme.accent); f.position.set(0.42 * shape.bulk * s, 1.16, 0); f.scale.set(1.1, 0.6, 1.1); bodyGroup.add(f); }
+      this.addMobWeapon(base, arch, theme);
+      lod.userData.legL = base.legL;
+      lod.userData.legR = base.legR;
+      lod.userData.armL = base.armL;
+      lod.userData.armR = base.armR;
     }
-    const low = this.makeLabelSprite(mob.isBoss ? "BOSS" : `L${mob.scaledLevel || mob.level || 1}`, "#ffb26a");
+
+    if (arch === "boss") {
+      const crown = this.mkCone(0.34, 0.42, 5, theme.glow || 0xf0c85d, theme.glow ? { basic: true } : undefined);
+      bodyGroup.add(this.place(crown, 0, 1.95, 0));
+    }
+    if (isElite) bodyGroup.add(this.place(this.mkIco(0.09, 0, 0xffd86a, { basic: true }), 0, 1.66, 0)); // elite crest
+
+    const topY = 1.85 * shape.scale + (arch === "boss" ? 0.25 : 0.12);
+    const low = this.makeLabelSprite(arch === "boss" ? "BOSS" : `L${mob.scaledLevel || mob.level || 1}`, "#ffb26a");
     low.scale.set(1.8, 0.5, 1);
-    low.position.y = 1.2;
+    low.position.y = topY;
     lod.addLevel(high, 0);
     // THREE.LOD measures full 3D camera distance, including the top-down
     // camera height, so keep high-detail mobs active at ordinary gameplay range.
     lod.addLevel(low, 42);
-    this.addHpBar(lod, mob.isBoss ? 2.25 : 1.65);
-    this.addLevelTag(lod, `L${mob.scaledLevel || mob.level || 1}`, mob.isBoss ? 2.72 : 2.05);
+    this.addHpBar(lod, topY + 0.18);
+    this.addLevelTag(lod, `L${mob.scaledLevel || mob.level || 1}`, topY + 0.5);
     return lod;
   }
 
@@ -1119,6 +1417,7 @@ export class LowPolyRenderer {
   addNameTag(group, text, y) {
     const tag = this.makeLabelSprite(text, "#fff8e8");
     tag.position.y = y;
+    tag.scale.set(1.95, 0.52, 1);
     group.add(tag);
     group.userData.nameTag = tag;
   }
@@ -1126,7 +1425,7 @@ export class LowPolyRenderer {
   addLevelTag(group, text, y = 1.6) {
     const tag = this.makeLabelSprite(text, "#72d8e8");
     tag.position.y = y;
-    tag.scale.set(1.1, 0.32, 1);
+    tag.scale.set(1.5, 0.44, 1);
     group.add(tag);
     group.userData.levelTag = tag;
   }
@@ -1212,6 +1511,22 @@ export class LowPolyRenderer {
       view.scale.setScalar(Math.max(0.8, radius / Math.max(0.2, view.geometry?.parameters?.radius || radius)));
       view.visible = this.isNearCamera(view.position, FAR_LOD_DISTANCE * 2);
     }
+    const baseBuilding = game.hoveredBaseBuilding;
+    if (baseBuilding?.alive) {
+      const point = game.getTargetPoint?.(baseBuilding) || baseBuilding;
+      const id = "target-base-building";
+      liveIds.add(id);
+      const radius = (game.getTargetRadius?.(baseBuilding) || baseBuilding.radius || 30) * SCALE + 0.28;
+      let view = this.helperViews.get(id);
+      if (!view) {
+        view = this.buildGroundRing(radius, 0x72d8e8, 0.7);
+        this.scene.add(view);
+        this.helperViews.set(id, view);
+      }
+      this.setObjectPosition(view, point.x, point.y, 0.16);
+      view.scale.setScalar(Math.max(0.95, radius / Math.max(0.2, view.geometry?.parameters?.radius || radius)));
+      view.visible = this.isNearCamera(view.position, FAR_LOD_DISTANCE * 2);
+    }
   }
 
   syncFloatingTextHelpers(game, liveIds) {
@@ -1240,7 +1555,8 @@ export class LowPolyRenderer {
       view.material.opacity = alpha;
       view.material.depthWrite = false;
       view.material.needsUpdate = true;
-      view.scale.set(text.kind === "text" ? 1.35 : 1.1, text.kind === "text" ? 0.34 : 0.3, 1);
+      const scale = CONFIG.combat?.damageNumbers?.labelScale || 1;
+      view.scale.set((text.kind === "text" ? 1.55 : 1.38) * scale, (text.kind === "text" ? 0.42 : 0.38) * scale, 1);
       this.setObjectPosition(view, text.x, text.y, 1.35 + progress * 0.55);
       view.visible = this.isNearCamera(view.position, FAR_LOD_DISTANCE * 1.6);
     }
@@ -1493,20 +1809,24 @@ export class LowPolyRenderer {
 
   makeLabelTexture(text, color) {
     const canvas = document.createElement("canvas");
-    canvas.width = 192;
-    canvas.height = 48;
+    canvas.width = 256;
+    canvas.height = 64;
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = "rgba(20,14,4,0.72)";
-    roundRect(ctx, 6, 8, 180, 30, 5);
+    roundRect(ctx, 8, 10, 240, 42, 7);
     ctx.fill();
     ctx.strokeStyle = "rgba(92,74,30,0.9)";
+    ctx.lineWidth = 2;
     ctx.stroke();
     ctx.fillStyle = color;
-    ctx.font = "900 18px monospace";
+    ctx.strokeStyle = "rgba(0,0,0,0.62)";
+    ctx.lineWidth = 4;
+    ctx.font = "950 24px monospace";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(text, 96, 23);
+    ctx.strokeText(text, 128, 32);
+    ctx.fillText(text, 128, 32);
     const texture = new this.THREE.CanvasTexture(canvas);
     texture.minFilter = this.THREE.NearestFilter;
     texture.magFilter = this.THREE.NearestFilter;
@@ -1702,9 +2022,6 @@ function disposeObject(object) {
     }
   });
 }
-
-
-
 
 
 
