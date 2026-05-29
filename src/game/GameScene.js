@@ -1,19 +1,19 @@
 // @ts-check
-import { BaseController } from "./Base.js?v=1.8.52";
-import { AIPlayerController } from "./AIPlayer.js?v=1.8.52";
-import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.52";
-import { CONFIG } from "./config.js?v=1.8.52";
-import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.52";
-import { GameMap } from "./Map.js?v=1.8.52";
-import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.52";
-import { MatchManager } from "./MatchManager.js?v=1.8.52";
-import { Mob } from "./Mob.js?v=1.8.52";
-import { createObjectives } from "./Objective.js?v=1.8.52";
-import { Player } from "./Player.js?v=1.8.52";
-import { RewardSystem } from "./RewardSystem.js?v=1.8.52";
-import { UIManager } from "./UIManager.js?v=1.8.52";
-import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.52";
-import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.52";
+import { BaseController } from "./Base.js?v=1.8.53";
+import { AIPlayerController } from "./AIPlayer.js?v=1.8.53";
+import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.53";
+import { CONFIG } from "./config.js?v=1.8.53";
+import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.53";
+import { GameMap } from "./Map.js?v=1.8.53";
+import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.53";
+import { MatchManager } from "./MatchManager.js?v=1.8.53";
+import { Mob } from "./Mob.js?v=1.8.53";
+import { createObjectives } from "./Objective.js?v=1.8.53";
+import { Player } from "./Player.js?v=1.8.53";
+import { RewardSystem } from "./RewardSystem.js?v=1.8.53";
+import { UIManager } from "./UIManager.js?v=1.8.53";
+import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.53";
+import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.53";
 
 export class GameScene {
   constructor(canvas, options = {}) {
@@ -1496,6 +1496,11 @@ export class GameScene {
           continue;
         }
         this.spawnRemoteGhostProjectile(event);
+      } else if (event.type === "area") {
+        if (event.sourcePlayerId === this.player.id) {
+          continue;
+        }
+        this.spawnRemoteGhostArea(event);
       } else {
         this.applyPvPOutcomeEvent(event);
       }
@@ -2550,6 +2555,48 @@ export class GameScene {
     });
   }
 
+  emitAreaEffectSpawn(effect) {
+    if (!this.multiplayer?.queueCombatEvent) {
+      return;
+    }
+    this.multiplayer.queueCombatEvent({
+      type: "area",
+      shape: effect.shape || "circle",
+      x: Math.round(effect.x || 0),
+      y: Math.round(effect.y || 0),
+      radius: Math.round(effect.radius || 0),
+      x1: Math.round(effect.x1 || 0),
+      y1: Math.round(effect.y1 || 0),
+      x2: Math.round(effect.x2 || 0),
+      y2: Math.round(effect.y2 || 0),
+      width: Math.round(effect.width || 0),
+      color: effect.color || "#b391f0",
+      duration: Math.round((effect.duration || 1) * 100) / 100,
+      effectType: effect.type || effect.kind || ""
+    });
+  }
+
+  // Non-damaging visual copy of a remote player's area ability (zone or wall).
+  spawnRemoteGhostArea(event) {
+    this.areaEffects.push({
+      ghost: true,
+      shape: event.shape || "circle",
+      x: event.x,
+      y: event.y,
+      radius: event.radius || 60,
+      x1: event.x1,
+      y1: event.y1,
+      x2: event.x2,
+      y2: event.y2,
+      width: event.width,
+      color: event.color || "#b391f0",
+      type: event.effectType || undefined,
+      duration: Math.max(0.2, Math.min(30, event.duration || 1)),
+      elapsed: 0,
+      hitIds: new Set()
+    });
+  }
+
   setCountdownOverlay(text) {
     const el = typeof document !== "undefined" ? document.getElementById("matchCountdown") : null;
     if (!el) {
@@ -2594,9 +2641,16 @@ export class GameScene {
       this.applyAreaEffectDamage(nextEffect);
     }
     this.areaEffects.push(nextEffect);
+    // Replicate the local player's area abilities so opponents see the zone/wall.
+    if (this.multiplayer && nextEffect.team === "player" && !nextEffect.ghost) {
+      this.emitAreaEffectSpawn(nextEffect);
+    }
   }
 
   applyAreaEffectDamage(nextEffect) {
+    if (nextEffect.ghost) {
+      return;
+    }
     const source = this.effectSource(nextEffect);
     for (const mob of this.mobs) {
       if (mob.alive && this.effectContainsTarget(nextEffect, mob)) {
@@ -5847,7 +5901,8 @@ export class GameScene {
     ctx.stroke();
 
     for (const remote of this.remotePlayers.values()) {
-      if (!remote.alive) {
+      // Only reveal rival players on the minimap when they are inside vision.
+      if (!remote.alive || !this.isPointCurrentlyVisible(remote, 0)) {
         continue;
       }
       ctx.fillStyle = "#ffb26a";

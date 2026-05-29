@@ -195,7 +195,7 @@ function appendRoomEvents(room, events = [], player = {}) {
 
 function sanitizeCombatEvent(rawEvent = {}, player = {}) {
   const type = String(rawEvent.type || "");
-  if (!["damage", "projectile", "playerDefeated", "playerEliminated", "coreDestroyed"].includes(type)) {
+  if (!["damage", "projectile", "area", "playerDefeated", "playerEliminated", "coreDestroyed"].includes(type)) {
     return null;
   }
   const id = String(rawEvent.id || `${player.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
@@ -226,6 +226,23 @@ function sanitizeCombatEvent(rawEvent = {}, player = {}) {
       radius: Math.max(1, Math.min(60, Math.round(Number(rawEvent.radius || 6)))),
       color: String(rawEvent.color || "#ffd36a").slice(0, 16),
       pierce: Boolean(rawEvent.pierce)
+    };
+  }
+  if (type === "area") {
+    return {
+      ...base,
+      shape: String(rawEvent.shape || "circle").slice(0, 12),
+      x: Math.round(Number(rawEvent.x || 0)),
+      y: Math.round(Number(rawEvent.y || 0)),
+      radius: Math.max(0, Math.min(2000, Math.round(Number(rawEvent.radius || 0)))),
+      x1: Math.round(Number(rawEvent.x1 || 0)),
+      y1: Math.round(Number(rawEvent.y1 || 0)),
+      x2: Math.round(Number(rawEvent.x2 || 0)),
+      y2: Math.round(Number(rawEvent.y2 || 0)),
+      width: Math.max(0, Math.min(2000, Math.round(Number(rawEvent.width || 0)))),
+      color: String(rawEvent.color || "#b391f0").slice(0, 16),
+      duration: Math.max(0, Math.min(30, Number(rawEvent.duration || 1))),
+      effectType: String(rawEvent.effectType || "").slice(0, 24)
     };
   }
   if (type === "damage") {
