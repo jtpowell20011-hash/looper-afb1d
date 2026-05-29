@@ -2142,3 +2142,41 @@ h2 {
     min-width: 0;
   }
 }
+
+/* ---- Multiplayer ready states + synchronized start countdown ---- */
+.room-player.is-ready strong {
+  color: #7fe08a;
+}
+
+.room-player.is-waiting strong {
+  color: #ffb26a;
+}
+
+.room-player.is-host strong {
+  color: #72d8e8;
+}
+
+#readyButton.is-ready {
+  background: linear-gradient(#7fe08a, #4fae5a);
+  color: #0c1c0e;
+}
+
+.match-countdown {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 45%, rgba(8, 12, 9, 0.35) 0%, rgba(8, 12, 9, 0.7) 70%);
+  color: #fff8e8;
+  font-size: clamp(28px, 6vw, 64px);
+  font-weight: 900;
+  letter-spacing: 1px;
+  text-shadow: 0 4px 24px rgba(0, 0, 0, 0.7);
+}
+
+.match-countdown[hidden] {
+  display: none;
+}

@@ -16,6 +16,8 @@ const PLAYER_STALE_MS = 1000 * 35;
 const MAX_PLAYERS = Math.max(2, Math.min(8, Number(process.env.MAX_PLAYERS || 8)));
 const MAX_ROOM_EVENTS = 240;
 const MAX_EVENT_DAMAGE = 1200;
+// Shared countdown so every client unfreezes the match at the same moment.
+const START_COUNTDOWN_MS = 5000;
 
 const mimeTypes = {
   ".css": "text/css; charset=utf-8",
@@ -102,6 +104,8 @@ function publicRoom(room) {
     createdAt: cleaned.createdAt,
     updatedAt: cleaned.updatedAt,
     startedAt: cleaned.startedAt,
+    startAt: cleaned.startAt || null,
+    serverNow: Date.now(),
     players: cleaned.players
   };
 }
@@ -156,6 +160,7 @@ function upsertPlayer(room, player, state = undefined) {
     isHost: player.id === room.hostId,
     joinedAt: existingIndex >= 0 ? room.players[existingIndex].joinedAt : Date.now(),
     lastSeen: Date.now(),
+    ready: existingIndex >= 0 ? Boolean(room.players[existingIndex].ready) : false,
     state: state === undefined ? existingIndex >= 0 ? room.players[existingIndex].state : null : state
   };
   if (existingIndex >= 0) {
@@ -190,7 +195,7 @@ function appendRoomEvents(room, events = [], player = {}) {
 
 function sanitizeCombatEvent(rawEvent = {}, player = {}) {
   const type = String(rawEvent.type || "");
-  if (!["damage", "playerDefeated", "playerEliminated", "coreDestroyed"].includes(type)) {
+  if (!["damage", "projectile", "playerDefeated", "playerEliminated", "coreDestroyed"].includes(type)) {
     return null;
   }
   const id = String(rawEvent.id || `${player.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
@@ -210,6 +215,19 @@ function sanitizeCombatEvent(rawEvent = {}, player = {}) {
     sourceName: String(rawEvent.sourceName || player.name || "Player").slice(0, 28),
     timestamp: Number(rawEvent.timestamp || Date.now())
   };
+  if (type === "projectile") {
+    return {
+      ...base,
+      x: Math.round(Number(rawEvent.x || 0)),
+      y: Math.round(Number(rawEvent.y || 0)),
+      vx: Math.round(Number(rawEvent.vx || 0)),
+      vy: Math.round(Number(rawEvent.vy || 0)),
+      range: Math.max(0, Math.min(5000, Math.round(Number(rawEvent.range || 0)))),
+      radius: Math.max(1, Math.min(60, Math.round(Number(rawEvent.radius || 6)))),
+      color: String(rawEvent.color || "#ffd36a").slice(0, 16),
+      pierce: Boolean(rawEvent.pierce)
+    };
+  }
   if (type === "damage") {
     if (!targetOwnerId || !targetId || amount <= 0) {
       return null;
@@ -388,10 +406,30 @@ async function handleRoomApi(req, reqUrl, res) {
         sendJson(res, 403, { error: "host_only" });
         return true;
       }
+      // Everyone except the host must Ready up first (solo host can start alone).
+      const allReady = room.players.every((player) => player.id === room.hostId || player.ready);
+      if (room.players.length > 1 && !allReady) {
+        sendJson(res, 409, { error: "not_ready" });
+        return true;
+      }
       room.settings = sanitizeRoomSettings({ ...room.settings, ...(body.settings || {}) });
       room.status = "started";
       room.startedAt = Date.now();
+      room.startAt = Date.now() + START_COUNTDOWN_MS;
       broadcastRoom(room);
+      sendJson(res, 200, publicRoom(room));
+      return true;
+    }
+
+    if (req.method === "POST" && parts[3] === "ready") {
+      const body = await readJson(req);
+      const player = room.players.find((candidate) => candidate.id === body.playerId);
+      if (player) {
+        player.ready = Boolean(body.ready);
+        player.lastSeen = Date.now();
+        room.updatedAt = Date.now();
+        broadcastRoom(room);
+      }
       sendJson(res, 200, publicRoom(room));
       return true;
     }

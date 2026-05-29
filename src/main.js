@@ -11,9 +11,9 @@ async function bootBasebound() {
     }
 
     const [{ GameScene }, { MainMenu }, { SettingsManager }] = await Promise.all([
-      import("./game/GameScene.js?v=1.8.51"),
-      import("./game/MainMenu.js?v=1.8.51"),
-      import("./game/SettingsManager.js?v=1.8.51")
+      import("./game/GameScene.js?v=1.8.52"),
+      import("./game/MainMenu.js?v=1.8.52"),
+      import("./game/SettingsManager.js?v=1.8.52")
     ]);
 
     let activeGame = null;
@@ -70,7 +70,8 @@ async function bootBasebound() {
           worldOptions: session.worldOptions || {},
           worldSeed: session.worldSeed || session.room?.settings?.worldSeed || null,
           isHost: Boolean(session.isHost),
-          roomCode: session.room?.code || null
+          roomCode: session.room?.code || null,
+          startAt: session.startAt || 0
         });
         activeGame = game;
         publishDebugGame(game);

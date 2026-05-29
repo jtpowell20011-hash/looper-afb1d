@@ -9,12 +9,13 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Basebound</title>
     <link rel="manifest" href="manifest.webmanifest">
-    <link rel="stylesheet" href="styles.css?v=1.8.51">
+    <link rel="stylesheet" href="styles.css?v=1.8.52">
   </head>
   <body>
     <main class="game-shell" aria-label="Basebound prototype">
       <canvas id="threeCanvas" class="three-canvas" aria-label="Basebound low poly 3D world"></canvas>
       <canvas id="gameCanvas" aria-label="Basebound game world"></canvas>
+      <div id="matchCountdown" class="match-countdown" hidden aria-live="polite"></div>
 
       <section class="top-hud" aria-label="Hero status">
         <div class="brand-mini">
@@ -374,7 +375,7 @@
               <button id="menuHowToPlayButton" type="button">How to Play</button>
               <button id="menuSettingsButton" type="button">Settings</button>
             </nav>
-            <span class="menu-version">Prototype v1.8.51</span>
+            <span class="menu-version">Prototype v1.8.52</span>
           </section>
 
           <section id="menuScreenMode" class="menu-screen" data-menu-screen="mode" hidden>
@@ -596,6 +597,7 @@
               <button id="copyInviteButton" type="button">Copy Invite Link</button>
             </div>
             <div id="roomPlayerList" class="room-player-list"></div>
+            <button id="readyButton" type="button" hidden>Ready Up</button>
             <button id="startRoomButton" type="button">Start Game</button>
           </section>
         </div>
@@ -626,8 +628,8 @@
       </section>
     </main>
 
-    <script src="assets/vendor/three.r128.min.js?v=1.8.51"></script>
-    <script type="module" src="src/main.js?v=1.8.51"></script>
+    <script src="assets/vendor/three.r128.min.js?v=1.8.52"></script>
+    <script type="module" src="src/main.js?v=1.8.52"></script>
   </body>
 </html>
 

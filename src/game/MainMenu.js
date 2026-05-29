@@ -1,7 +1,7 @@
 // @ts-check
-import { CHARACTER_CLASS_IDS, getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.51";
-import { CONFIG } from "./config.js?v=1.8.51";
-import { MultiplayerRoomClient } from "./MultiplayerRoomClient.js?v=1.8.51";
+import { CHARACTER_CLASS_IDS, getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.52";
+import { CONFIG } from "./config.js?v=1.8.52";
+import { MultiplayerRoomClient } from "./MultiplayerRoomClient.js?v=1.8.52";
 
 const DEFAULT_WORLD_OPTIONS = Object.freeze({
   bosses: true,
@@ -126,6 +126,7 @@ export class MainMenu {
       roomCodeInput: byId("roomCodeInput"),
       soloButton: byId("soloButton"),
       startButton: byId("startRoomButton"),
+      readyButton: byId("readyButton"),
       roomPanel: byId("roomPanel"),
       roomCodeText: byId("roomCodeText"),
       roomTransportText: byId("roomTransportText"),
@@ -232,6 +233,7 @@ export class MainMenu {
     this.els.createButton.addEventListener("click", () => this.createRoom());
     this.els.joinButton.addEventListener("click", () => this.joinRoom());
     this.els.startButton.addEventListener("click", () => this.startRoom());
+    this.els.readyButton?.addEventListener("click", () => this.toggleReady());
     this.els.soloButton.addEventListener("click", () => this.startSolo());
     this.els.roomCodeInput.addEventListener("input", () => {
       this.els.roomCodeInput.value = normalizeRoomCode(this.els.roomCodeInput.value);
@@ -483,8 +485,40 @@ export class MainMenu {
     }
   }
 
+  async toggleReady() {
+    if (!this.roomClient || this.roomClient.isHost) {
+      return;
+    }
+    this.localReady = !this.localReady;
+    this.renderReadyButton();
+    try {
+      const room = await this.roomClient.setReady(this.localReady);
+      if (room) {
+        this.room = room;
+        this.renderRoom(room);
+      }
+    } catch (error) {
+      this.localReady = !this.localReady;
+      this.renderReadyButton();
+      this.setStatus(error.message || "Could not update ready state.");
+    }
+  }
+
+  renderReadyButton() {
+    const btn = this.els.readyButton;
+    if (!btn) {
+      return;
+    }
+    const inRoom = Boolean(this.roomClient) && !this.started;
+    const isHost = Boolean(this.roomClient?.isHost);
+    btn.hidden = !inRoom || isHost;
+    btn.textContent = this.localReady ? "Ready ✓ (tap to cancel)" : "Ready Up";
+    btn.classList.toggle("is-ready", Boolean(this.localReady));
+  }
+
   setRoom(client, room) {
     this.roomClient = client;
+    this.localReady = false;
     this.room = room;
     this.applyRoomSettings(room);
     this.renderRoom(room);
@@ -570,7 +604,8 @@ export class MainMenu {
       characterId: this.selectedCharacterId,
       worldOptions: room.settings?.worldOptions || this.worldOptions,
       worldSeed: room.settings?.worldSeed || this.pendingWorldSeed,
-      isHost: this.roomClient.isHost
+      isHost: this.roomClient.isHost,
+      startAt: room.startAt || 0
     });
   }
 
@@ -688,26 +723,42 @@ export class MainMenu {
   }
 
   renderRoom(room) {
+    if (!room) {
+      return;
+    }
     this.els.roomPanel.hidden = false;
     this.els.roomCodeText.textContent = room.code;
     this.els.roomTransportText.textContent = this.roomClient?.transportLabel || "Local";
     const maxPlayers = room.maxPlayers || room.settings?.maxPlayers || 8;
+    const me = room.players.find((player) => player.id === this.roomClient?.playerId);
+    if (me) {
+      this.localReady = Boolean(me.ready);
+    }
+    const nonHostPlayers = room.players.filter((player) => player.id !== room.hostId);
+    const everyoneReady = nonHostPlayers.length > 0 && nonHostPlayers.every((player) => player.ready);
+    const soloRoom = room.players.length < 2;
     this.els.roomStatusText.textContent = room.status === "started" ? "Starting" : `Lobby ${room.players.length}/${maxPlayers}`;
     this.els.inviteUrlText.textContent = this.roomClient?.isRemote
       ? this.getInviteUrl(room.code)
       : "Local-tab room only. Use the Node server or a public deployment for shareable links.";
     this.els.copyInviteButton.disabled = !this.roomClient?.isHost || !this.roomClient?.isRemote;
     this.els.startButton.hidden = !this.roomClient?.isHost;
-    this.els.startButton.disabled = room.status === "started";
-    this.els.startButton.textContent = room.players.length >= 2 ? "Start Game" : "Start Solo Room";
+    const canStart = room.status !== "started" && (soloRoom || everyoneReady);
+    this.els.startButton.disabled = !canStart;
+    this.els.startButton.textContent = soloRoom
+      ? "Start Solo Room"
+      : everyoneReady
+        ? "Start Game"
+        : "Waiting for players to ready up…";
     this.els.roomPlayerList.innerHTML = room.players
-      .map(
-        (player) =>
-          `<div class="room-player"><span>${escapeHtml(player.name || "Player")}</span><strong>${
-            player.id === room.hostId ? "Host" : "Joined"
-          }</strong></div>`
-      )
+      .map((player) => {
+        const isHost = player.id === room.hostId;
+        const tag = isHost ? "Host" : player.ready ? "Ready" : "Not ready";
+        const cls = isHost ? "is-host" : player.ready ? "is-ready" : "is-waiting";
+        return `<div class="room-player ${cls}"><span>${escapeHtml(player.name || "Player")}</span><strong>${tag}</strong></div>`;
+      })
       .join("");
+    this.renderReadyButton();
   }
 
   async loadNetworkInfo() {

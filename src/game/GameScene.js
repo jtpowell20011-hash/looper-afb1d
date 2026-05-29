@@ -1,19 +1,19 @@
 // @ts-check
-import { BaseController } from "./Base.js?v=1.8.51";
-import { AIPlayerController } from "./AIPlayer.js?v=1.8.51";
-import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.51";
-import { CONFIG } from "./config.js?v=1.8.51";
-import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.51";
-import { GameMap } from "./Map.js?v=1.8.51";
-import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.51";
-import { MatchManager } from "./MatchManager.js?v=1.8.51";
-import { Mob } from "./Mob.js?v=1.8.51";
-import { createObjectives } from "./Objective.js?v=1.8.51";
-import { Player } from "./Player.js?v=1.8.51";
-import { RewardSystem } from "./RewardSystem.js?v=1.8.51";
-import { UIManager } from "./UIManager.js?v=1.8.51";
-import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.51";
-import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.51";
+import { BaseController } from "./Base.js?v=1.8.52";
+import { AIPlayerController } from "./AIPlayer.js?v=1.8.52";
+import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.52";
+import { CONFIG } from "./config.js?v=1.8.52";
+import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.52";
+import { GameMap } from "./Map.js?v=1.8.52";
+import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.52";
+import { MatchManager } from "./MatchManager.js?v=1.8.52";
+import { Mob } from "./Mob.js?v=1.8.52";
+import { createObjectives } from "./Objective.js?v=1.8.52";
+import { Player } from "./Player.js?v=1.8.52";
+import { RewardSystem } from "./RewardSystem.js?v=1.8.52";
+import { UIManager } from "./UIManager.js?v=1.8.52";
+import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.52";
+import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.52";
 
 export class GameScene {
   constructor(canvas, options = {}) {
@@ -55,6 +55,8 @@ export class GameScene {
     this.playerName = options.playerName || "Basebound Scout";
     this.roomCode = options.roomCode || null;
     this.worldSeed = options.worldSeed || null;
+    // Server-clock timestamp at which all clients begin the match together (0 = no sync gate).
+    this.matchStartAt = Number.isFinite(options.startAt) ? options.startAt : 0;
     this.remotePlayers = new Map();
     this.remoteBases = new Map();
     this.rewardSystem = new RewardSystem();
@@ -1088,6 +1090,19 @@ export class GameScene {
   }
 
   update(dt) {
+    // Synchronized start: hold the simulation (world already built behind a
+    // countdown overlay) until the shared server-stamped start time so every
+    // client begins at the same moment.
+    if (this.matchStartAt && this.multiplayer) {
+      const remainingMs = this.matchStartAt - this.multiplayer.adjustedNow();
+      if (remainingMs > 0) {
+        this.setCountdownOverlay(`Starting in ${Math.max(1, Math.ceil(remainingMs / 1000))}`);
+        this.updateMultiplayer(dt);
+        return;
+      }
+      this.matchStartAt = 0;
+      this.setCountdownOverlay(null);
+    }
     this.updateToasts(dt);
     this.updateFloatingTexts(dt);
     this.updateBaseEffects(dt);
@@ -1219,7 +1234,7 @@ export class GameScene {
   // Smoothly ease each remote proxy toward its last networked position so
   // movement reads cleanly between the ~8Hz network updates instead of teleporting.
   interpolateRemotePlayers(dt) {
-    const k = Math.min(1, dt * 14);
+    const k = Math.min(1, dt * 18);
     for (const remote of this.remotePlayers.values()) {
       if (!Number.isFinite(remote.targetX) || !Number.isFinite(remote.targetY)) {
         continue;
@@ -1476,6 +1491,11 @@ export class GameScene {
           continue;
         }
         this.applyIncomingPvPDamage(event);
+      } else if (event.type === "projectile") {
+        if (event.sourcePlayerId === this.player.id) {
+          continue;
+        }
+        this.spawnRemoteGhostProjectile(event);
       } else {
         this.applyPvPOutcomeEvent(event);
       }
@@ -1739,6 +1759,11 @@ export class GameScene {
 
       if (projectile.travelled >= projectile.range) {
         projectile.alive = false;
+        continue;
+      }
+
+      // Replicated enemy shots are visual-only: move + expire, never collide.
+      if (projectile.team === "remoteGhost") {
         continue;
       }
 
@@ -2470,14 +2495,72 @@ export class GameScene {
   }
 
   spawnProjectile(projectile) {
-    this.projectiles.push({
+    const created = {
       ...projectile,
       sourceX: projectile.sourceX ?? projectile.x,
       sourceY: projectile.sourceY ?? projectile.y,
       travelled: 0,
       alive: true,
       hitIds: new Set()
+    };
+    this.projectiles.push(created);
+    // Replicate the local player's shots so opponents can see them coming.
+    if (this.multiplayer && created.team === "player") {
+      this.emitProjectileSpawn(created);
+    }
+    return created;
+  }
+
+  emitProjectileSpawn(projectile) {
+    if (!this.multiplayer?.queueCombatEvent) {
+      return;
+    }
+    this.multiplayer.queueCombatEvent({
+      type: "projectile",
+      x: Math.round(projectile.x),
+      y: Math.round(projectile.y),
+      vx: Math.round(projectile.vx || 0),
+      vy: Math.round(projectile.vy || 0),
+      range: Math.round(projectile.range || 600),
+      radius: Math.round(projectile.radius || 6),
+      color: projectile.color || "#ffd36a",
+      pierce: Boolean(projectile.pierce)
     });
+  }
+
+  // Spawn a non-damaging visual copy of a remote player's projectile, advanced
+  // by the relay latency so it lines up roughly with where the real shot is.
+  spawnRemoteGhostProjectile(event) {
+    const now = this.multiplayer?.adjustedNow ? this.multiplayer.adjustedNow() : Date.now();
+    const elapsed = Math.max(0, Math.min(0.6, (now - (event.serverTime || event.timestamp || now)) / 1000));
+    const vx = event.vx || 0;
+    const vy = event.vy || 0;
+    this.projectiles.push({
+      x: event.x + vx * elapsed,
+      y: event.y + vy * elapsed,
+      vx,
+      vy,
+      range: event.range || 600,
+      radius: event.radius || 6,
+      color: event.color || "#ff7b5c",
+      team: "remoteGhost",
+      travelled: Math.hypot(vx, vy) * elapsed,
+      alive: true,
+      hitIds: new Set()
+    });
+  }
+
+  setCountdownOverlay(text) {
+    const el = typeof document !== "undefined" ? document.getElementById("matchCountdown") : null;
+    if (!el) {
+      return;
+    }
+    if (text == null) {
+      el.hidden = true;
+      return;
+    }
+    el.hidden = false;
+    el.textContent = text;
   }
 
   spawnBaseEffect(effect) {

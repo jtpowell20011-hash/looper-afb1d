@@ -21,6 +21,28 @@ export class MultiplayerRoomClient {
     this.unsubscribeRoom = null;
     this.roomUpdateHandler = null;
     this.outgoingEvents = [];
+    this.serverClockOffset = 0;
+  }
+
+  // Track the server clock so the synchronized match start lines up across
+  // clients with different local clocks.
+  noteServerTime(room) {
+    if (room && Number.isFinite(room.serverNow)) {
+      this.serverClockOffset = room.serverNow - Date.now();
+    }
+  }
+
+  adjustedNow() {
+    return Date.now() + this.serverClockOffset;
+  }
+
+  async setReady(ready) {
+    if (!this.transport || !this.roomCode || !this.transport.setReady) {
+      return null;
+    }
+    this.lastRoom = await this.transport.setReady(this.roomCode, this.playerId, Boolean(ready));
+    this.noteServerTime(this.lastRoom);
+    return this.lastRoom;
   }
 
   async createRoom(settings = {}) {
@@ -32,6 +54,7 @@ export class MultiplayerRoomClient {
     this.roomCode = room.code;
     this.isHost = room.hostId === this.playerId;
     this.lastRoom = room;
+    this.noteServerTime(room);
     return room;
   }
 
@@ -44,6 +67,7 @@ export class MultiplayerRoomClient {
     this.roomCode = room.code;
     this.isHost = room.hostId === this.playerId;
     this.lastRoom = room;
+    this.noteServerTime(room);
     return room;
   }
 
@@ -71,6 +95,7 @@ export class MultiplayerRoomClient {
     }
     this.lastRoom = await this.transport.getRoom(this.roomCode, this.playerPayload(this.isHost));
     this.isHost = this.lastRoom.hostId === this.playerId;
+    this.noteServerTime(this.lastRoom);
     return this.lastRoom;
   }
 
@@ -79,6 +104,7 @@ export class MultiplayerRoomClient {
       throw new Error("Create or join a room first.");
     }
     this.lastRoom = await this.transport.startRoom(this.roomCode, this.playerId, settings);
+    this.noteServerTime(this.lastRoom);
     return this.lastRoom;
   }
 
@@ -131,6 +157,7 @@ export class MultiplayerRoomClient {
   }
 
   applyRoomToScene(scene, room) {
+    this.noteServerTime(room);
     const remotes = (room.players || []).filter((player) => player.id !== this.playerId && player.state);
     scene.setRemoteSnapshots(remotes);
     scene.applyRemoteCombatEvents?.(room.events || []);
@@ -187,6 +214,13 @@ class HttpRoomTransport {
     return requestJson(`/api/rooms/${encodeURIComponent(code)}/start`, {
       method: "POST",
       body: { playerId, settings }
+    });
+  }
+
+  async setReady(code, playerId, ready) {
+    return requestJson(`/api/rooms/${encodeURIComponent(code)}/ready`, {
+      method: "POST",
+      body: { playerId, ready }
     });
   }
 
@@ -298,9 +332,24 @@ class LocalRoomTransport {
     room.settings = sanitizeLocalSettings({ ...room.settings, ...settings });
     room.status = "started";
     room.startedAt = Date.now();
+    room.startAt = Date.now() + 5000;
     room.updatedAt = Date.now();
     writeRoom(room);
     return room;
+  }
+
+  async setReady(code, playerId, ready) {
+    const room = readRoom(code);
+    if (!room) {
+      throw new Error("Room not found.");
+    }
+    const index = room.players.findIndex((existing) => existing.id === playerId);
+    if (index >= 0) {
+      room.players[index] = { ...room.players[index], ready: Boolean(ready), lastSeen: Date.now() };
+      room.updatedAt = Date.now();
+      writeRoom(cleanRoom(room));
+    }
+    return readRoom(code);
   }
 
   async updatePlayerState(code, player, state, events = []) {
