@@ -1,19 +1,19 @@
 // @ts-check
-import { BaseController } from "./Base.js?v=1.8.57";
-import { AIPlayerController } from "./AIPlayer.js?v=1.8.57";
-import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.57";
-import { CONFIG } from "./config.js?v=1.8.57";
-import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.57";
-import { GameMap } from "./Map.js?v=1.8.57";
-import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.57";
-import { MatchManager } from "./MatchManager.js?v=1.8.57";
-import { Mob } from "./Mob.js?v=1.8.57";
-import { createObjectives } from "./Objective.js?v=1.8.57";
-import { Player } from "./Player.js?v=1.8.57";
-import { RewardSystem } from "./RewardSystem.js?v=1.8.57";
-import { UIManager } from "./UIManager.js?v=1.8.57";
-import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.57";
-import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.57";
+import { BaseController } from "./Base.js?v=1.8.58";
+import { AIPlayerController } from "./AIPlayer.js?v=1.8.58";
+import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.58";
+import { CONFIG } from "./config.js?v=1.8.58";
+import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.58";
+import { GameMap } from "./Map.js?v=1.8.58";
+import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.58";
+import { MatchManager } from "./MatchManager.js?v=1.8.58";
+import { Mob } from "./Mob.js?v=1.8.58";
+import { createObjectives } from "./Objective.js?v=1.8.58";
+import { Player } from "./Player.js?v=1.8.58";
+import { RewardSystem } from "./RewardSystem.js?v=1.8.58";
+import { UIManager } from "./UIManager.js?v=1.8.58";
+import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.58";
+import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.58";
 
 export class GameScene {
   constructor(canvas, options = {}) {
@@ -65,6 +65,7 @@ export class GameScene {
       placeBase: () => this.toggleBasePlacementPreview(),
       upgrade: (type) => this.upgradeBuilding(type),
       upgradeBuildingById: (id) => this.upgradeBuildingById(id),
+      upgradeAllOfType: (type) => this.upgradeAllOfType(type),
       addCurrency: () => this.debugAddCurrency(),
       addXP: () => this.debugAddXP(),
       damageCore: () => this.debugDamageCore(),
@@ -571,6 +572,11 @@ export class GameScene {
 
     if (event.code === "Escape") {
       this.clearMovementKeys();
+      // Back out of any open in-game menu/preview first; only open Settings
+      // when nothing else is open.
+      if (this.closeTopMenuOrPreview()) {
+        return;
+      }
       document.getElementById("settingsButton")?.click();
       return;
     }
@@ -649,6 +655,27 @@ export class GameScene {
 
   clearQueuedAbility() {
     this.queuedAbilityId = null;
+  }
+
+  // Esc backs out of one layer of UI/preview at a time.
+  closeTopMenuOrPreview() {
+    if (this.ui?.closeTopMenu?.()) {
+      return true;
+    }
+    if (this.basePlacementPreviewActive) {
+      this.basePlacementPreviewActive = false;
+      this.addToast?.("Base placement cancelled.");
+      return true;
+    }
+    if (this.queuedAbilityId) {
+      this.clearQueuedAbility();
+      return true;
+    }
+    if (this.selectedTarget) {
+      this.clearSelectedTarget();
+      return true;
+    }
+    return false;
   }
 
   findFriendlyBaseBuildingAtPoint(point) {
@@ -1390,7 +1417,7 @@ export class GameScene {
 
   createDeployableSnapshot() {
     return (this.baseDefenders || [])
-      .filter((defender) => defender.alive && defender.ownerId === this.player.id && (defender.temporary || defender.followOwner || defender.kind === "turret"))
+      .filter((defender) => defender.alive && defender.ownerId === this.player.id && !defender.isRemoteDeployable)
       .slice(0, CONFIG.multiplayer?.maxSyncedDeployables || 24)
       .map((defender) => ({
         id: defender.id,
@@ -4211,17 +4238,20 @@ export class GameScene {
 
   getBlockingWalls(entity = null) {
     const walls = [];
-    if (entity !== this.player) {
+    // Friendly troops/deployables pass through their own owner's walls; only
+    // enemy walls block. ownerId ties a defender to the base it belongs to.
+    const ownerId = entity?.ownerId;
+    if (entity !== this.player && ownerId !== this.player.id) {
       walls.push(...this.base.livingBuildings.filter((building) => building.type === "wall"));
     }
     for (const ai of this.aiPlayers || []) {
-      if (entity === ai.player) {
+      if (entity === ai.player || ownerId === ai.player.id) {
         continue;
       }
       walls.push(...ai.base.livingBuildings.filter((building) => building.type === "wall"));
     }
     for (const remoteBase of this.remoteBases?.values?.() || []) {
-      if (entity?.id === remoteBase.playerId || entity?.ownerId === remoteBase.playerId) {
+      if (entity?.id === remoteBase.playerId || ownerId === remoteBase.playerId) {
         continue;
       }
       walls.push(...(remoteBase.buildings || []).filter((building) => building.type === "wall" && building.alive !== false));
@@ -4590,6 +4620,15 @@ export class GameScene {
       return;
     }
     const result = this.base.upgradeById(id, this.player);
+    this.addToast(result.message);
+  }
+
+  upgradeAllOfType(type) {
+    if (!this.isPlayerNearCore()) {
+      this.addToast("Base upgrades are available only near your core.");
+      return;
+    }
+    const result = this.base.upgradeAllOfType(type, this.player);
     this.addToast(result.message);
   }
 

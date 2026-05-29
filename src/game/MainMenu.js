@@ -1,7 +1,7 @@
 // @ts-check
-import { CHARACTER_CLASS_IDS, getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.57";
-import { CONFIG } from "./config.js?v=1.8.57";
-import { MultiplayerRoomClient } from "./MultiplayerRoomClient.js?v=1.8.57";
+import { CHARACTER_CLASS_IDS, getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.58";
+import { CONFIG } from "./config.js?v=1.8.58";
+import { MultiplayerRoomClient } from "./MultiplayerRoomClient.js?v=1.8.58";
 
 const DEFAULT_WORLD_OPTIONS = Object.freeze({
   bosses: true,
@@ -194,7 +194,7 @@ export class MainMenu {
     this.els.readyBackButton.addEventListener("click", () => this.showCharacterScreen(false));
     this.els.howToPlayBackButton.addEventListener("click", () => this.showScreen("main"));
     this.els.setupContinueButton.addEventListener("click", () => this.showCharacterScreen(false));
-    this.els.characterReadyButton.addEventListener("click", () => this.showReady());
+    this.els.characterReadyButton.addEventListener("click", () => this.onCharacterPrimaryAction());
     this.els.soloModeButton.addEventListener("click", () => {
       this.setMode("solo");
       this.showScreen("setup");
@@ -282,6 +282,7 @@ export class MainMenu {
       : "Pick a class whose strengths match the match you want to play.";
     this.els.characterReadyButton.hidden = this.galleryMode;
     this.renderCharacterSelection();
+    this.updateCharacterPrimaryButton(this.room);
     this.showScreen("character");
   }
 
@@ -333,6 +334,7 @@ export class MainMenu {
     this.futureLobbyState.settings.mapSize = this.selectedMapSize;
     this.futureLobbyState.settings.worldOptions = { ...this.worldOptions };
     this.renderCharacterSelection();
+    this.updateCharacterPrimaryButton(this.room);
   }
 
   showReady() {
@@ -425,9 +427,10 @@ export class MainMenu {
       const client = new MultiplayerRoomClient(this.playerName);
       const room = await client.createRoom(this.roomSettingsPayload());
       this.setRoom(client, room);
+      this.showCharacterScreen(false);
       this.setStatus(
         client.isRemote
-          ? `Room ${room.code} created. Copy the invite link and send it to another player.`
+          ? `Room ${room.code} created. Copy the invite link, pick your hero, and Start when everyone is ready.`
           : `Room ${room.code} created in local-tab mode. Start or deploy the Node server for internet invite links.`
       );
     } catch (error) {
@@ -448,7 +451,8 @@ export class MainMenu {
       const client = new MultiplayerRoomClient(this.playerName);
       const room = await client.joinRoom(code);
       this.setRoom(client, room);
-      this.setStatus(`Joined ${room.code}. Waiting for the host to start.`);
+      this.showCharacterScreen(false);
+      this.setStatus(`Joined ${room.code}. Pick your hero and Ready Up for the host.`);
     } catch (error) {
       this.setStatus(error.message || "Could not join room.");
     } finally {
@@ -514,6 +518,54 @@ export class MainMenu {
     btn.hidden = !inRoom || isHost;
     btn.textContent = this.localReady ? "Ready ✓ (tap to cancel)" : "Ready Up";
     btn.classList.toggle("is-ready", Boolean(this.localReady));
+    this.updateCharacterPrimaryButton(this.room);
+  }
+
+  isInMultiplayerRoom() {
+    return Boolean(this.roomClient && this.roomClient.roomCode);
+  }
+
+  // The character screen's primary button doubles as the multiplayer lobby
+  // control so the host can Start (and guests can Ready) without leaving the
+  // hero picker. In solo it stays the normal "Ready Up" -> review flow.
+  onCharacterPrimaryAction() {
+    if (!this.isInMultiplayerRoom()) {
+      this.showReady();
+      return;
+    }
+    if (this.roomClient?.isHost) {
+      this.startRoom();
+    } else {
+      this.toggleReady();
+    }
+  }
+
+  updateCharacterPrimaryButton(room = this.room) {
+    const btn = this.els.characterReadyButton;
+    if (!btn || this.galleryMode) {
+      return;
+    }
+    btn.hidden = false;
+    btn.classList.remove("is-ready");
+    if (!this.isInMultiplayerRoom()) {
+      btn.disabled = false;
+      btn.textContent = "Ready Up";
+      return;
+    }
+    const isHost = Boolean(this.roomClient?.isHost);
+    if (isHost) {
+      const players = room?.players || [];
+      const nonHost = players.filter((player) => player.id !== room?.hostId);
+      const everyoneReady = nonHost.length > 0 && nonHost.every((player) => player.ready);
+      const soloRoom = players.length < 2;
+      const canStart = Boolean(room) && room.status !== "started" && (soloRoom || everyoneReady);
+      btn.disabled = !canStart;
+      btn.textContent = soloRoom ? "Start Solo Room" : everyoneReady ? "Start Game" : "Waiting for players to ready up…";
+    } else {
+      btn.disabled = false;
+      btn.textContent = this.localReady ? "Ready ✓ (tap to cancel)" : "Ready Up";
+      btn.classList.toggle("is-ready", Boolean(this.localReady));
+    }
   }
 
   setRoom(client, room) {

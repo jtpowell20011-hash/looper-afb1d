@@ -1,7 +1,7 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.57";
-import { Entity } from "./Entity.js?v=1.8.57";
-import { distance, randRange } from "./math.js?v=1.8.57";
+import { CONFIG } from "./config.js?v=1.8.58";
+import { Entity } from "./Entity.js?v=1.8.58";
+import { distance, randRange } from "./math.js?v=1.8.58";
 
 const BUILDING_RADIUS = {
   core: 34,
@@ -703,6 +703,46 @@ export class BaseController {
       }
     }
     return { ok: true, message: `${target.label} upgraded to level ${target.level}.` };
+  }
+
+  // Combined cost of bumping every upgradeable building of a type one level.
+  upgradeAllCost(type) {
+    let gold = 0;
+    let resources = 0;
+    let count = 0;
+    for (const building of this.livingBuildings) {
+      if (building.type !== type) {
+        continue;
+      }
+      const info = this.getUpgradeInfoById(building.id);
+      if (!info || info.levelCapped || !info.canFitEnergy) {
+        continue;
+      }
+      gold += info.cost.gold;
+      resources += info.cost.resources;
+      count += 1;
+    }
+    return { count, gold, resources };
+  }
+
+  upgradeAllOfType(type, player) {
+    const preview = this.upgradeAllCost(type);
+    if (preview.count === 0) {
+      return { ok: false, message: `No ${type} can be upgraded right now.` };
+    }
+    if (player.currency < preview.gold || player.resources < preview.resources) {
+      return { ok: false, message: `Need ${preview.gold} gold and ${preview.resources} build to upgrade all ${preview.count}.` };
+    }
+    // upgradeById re-checks cost/cap/energy and only deducts when it succeeds,
+    // so capped/energy-blocked buildings are safely skipped without overspending.
+    const ids = this.livingBuildings.filter((building) => building.type === type).map((building) => building.id);
+    let upgraded = 0;
+    for (const id of ids) {
+      if (this.upgradeById(id, player).ok) {
+        upgraded += 1;
+      }
+    }
+    return { ok: upgraded > 0, message: `Upgraded ${upgraded} ${type}${upgraded === 1 ? "" : "s"}.` };
   }
 
   getWallRepairInfo() {

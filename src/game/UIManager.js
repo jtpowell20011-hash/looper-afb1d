@@ -1,7 +1,7 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.57";
-import { labelForKeyCode } from "./InputBindings.js?v=1.8.57";
-import { formatTime } from "./math.js?v=1.8.57";
+import { CONFIG } from "./config.js?v=1.8.58";
+import { labelForKeyCode } from "./InputBindings.js?v=1.8.58";
+import { formatTime } from "./math.js?v=1.8.58";
 
 export class UIManager {
   constructor(callbacks) {
@@ -196,6 +196,12 @@ export class UIManager {
     });
     this.els.quickBuildingCloseButton.addEventListener("click", () => this.closeBuildingQuickMenu());
     this.els.buildingUpgradeList.addEventListener("click", (event) => {
+      const allTarget = event.target.closest("[data-upgrade-all-type]");
+      if (allTarget) {
+        consumePointer(event);
+        this.callbacks.upgradeAllOfType?.(allTarget.dataset.upgradeAllType);
+        return;
+      }
       const target = event.target.closest("[data-upgrade-building-id]");
       if (target) {
         consumePointer(event);
@@ -449,6 +455,23 @@ export class UIManager {
     this.quickBuildingId = null;
     this.quickBuildingAnchor = null;
     this.els.baseQuickMenu.hidden = true;
+  }
+
+  isAnyMenuOpen() {
+    return this.els.sideDrawer.classList.contains("is-open") || !this.els.baseQuickMenu.hidden;
+  }
+
+  // Close the top-most open UI panel; returns true if something was closed.
+  closeTopMenu() {
+    if (this.els.sideDrawer.classList.contains("is-open")) {
+      this.setDrawer(false);
+      return true;
+    }
+    if (!this.els.baseQuickMenu.hidden) {
+      this.closeBuildingQuickMenu();
+      return true;
+    }
+    return false;
   }
 
   renderBuildingQuickMenu(scene) {
@@ -883,12 +906,23 @@ export class UIManager {
     const candidates = scene.base.getUpgradeCandidates(this.upgradeFilter);
     const filterLabel = this.upgradeFilter ? upgradeFilterLabel(this.upgradeFilter) : "All";
     this.els.upgradeListFilterText.textContent = filterLabel;
-    setHtmlIfChanged(
-      this.els.buildingUpgradeList,
-      candidates.length === 0
-        ? `<div class="empty-list">No ${filterLabel.toLowerCase()} buildings available to upgrade.</div>`
-        : candidates.map((building) => buildingUpgradeMarkup(scene, building)).join("")
-    );
+    let listHtml;
+    if (candidates.length === 0) {
+      listHtml = `<div class="empty-list">No ${filterLabel.toLowerCase()} buildings available to upgrade.</div>`;
+    } else {
+      let header = "";
+      // When viewing a single building type, offer a one-click batch upgrade
+      // with the combined cost of bumping every upgradeable one a level.
+      if (this.upgradeFilter && candidates.length > 1) {
+        const all = scene.base.upgradeAllCost(this.upgradeFilter);
+        if (all.count > 1) {
+          const affordable = scene.player.currency >= all.gold && scene.player.resources >= all.resources;
+          header = `<div class="inventory-item item-card compact upgrade-all-row"><div><strong>Upgrade all ${filterLabel}</strong><em>${all.count} buildings → ${all.gold}g / ${all.resources}b</em></div><button type="button" data-upgrade-all-type="${this.upgradeFilter}"${affordable ? "" : " disabled"}>Upgrade all</button></div>`;
+        }
+      }
+      listHtml = header + candidates.map((building) => buildingUpgradeMarkup(scene, building)).join("");
+    }
+    setHtmlIfChanged(this.els.buildingUpgradeList, listHtml);
   }
 
   showMessage(eyebrow, title, body, options = {}) {

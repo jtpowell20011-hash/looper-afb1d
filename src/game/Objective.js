@@ -1,7 +1,7 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.57";
-import { distance } from "./math.js?v=1.8.57";
-import { DamageTracker } from "./RewardSystem.js?v=1.8.57";
+import { CONFIG } from "./config.js?v=1.8.58";
+import { distance } from "./math.js?v=1.8.58";
+import { DamageTracker } from "./RewardSystem.js?v=1.8.58";
 
 export class Objective {
   constructor(config) {
