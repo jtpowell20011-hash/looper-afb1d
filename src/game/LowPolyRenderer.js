@@ -1,5 +1,5 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.54";
+import { CONFIG } from "./config.js?v=1.8.55";
 
 const SCALE = 1 / 80;
 const TILE_WORLD_SIZE = 120;

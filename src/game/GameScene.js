@@ -1,19 +1,19 @@
 // @ts-check
-import { BaseController } from "./Base.js?v=1.8.54";
-import { AIPlayerController } from "./AIPlayer.js?v=1.8.54";
-import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.54";
-import { CONFIG } from "./config.js?v=1.8.54";
-import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.54";
-import { GameMap } from "./Map.js?v=1.8.54";
-import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.54";
-import { MatchManager } from "./MatchManager.js?v=1.8.54";
-import { Mob } from "./Mob.js?v=1.8.54";
-import { createObjectives } from "./Objective.js?v=1.8.54";
-import { Player } from "./Player.js?v=1.8.54";
-import { RewardSystem } from "./RewardSystem.js?v=1.8.54";
-import { UIManager } from "./UIManager.js?v=1.8.54";
-import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.54";
-import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.54";
+import { BaseController } from "./Base.js?v=1.8.55";
+import { AIPlayerController } from "./AIPlayer.js?v=1.8.55";
+import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.55";
+import { CONFIG } from "./config.js?v=1.8.55";
+import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.55";
+import { GameMap } from "./Map.js?v=1.8.55";
+import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.55";
+import { MatchManager } from "./MatchManager.js?v=1.8.55";
+import { Mob } from "./Mob.js?v=1.8.55";
+import { createObjectives } from "./Objective.js?v=1.8.55";
+import { Player } from "./Player.js?v=1.8.55";
+import { RewardSystem } from "./RewardSystem.js?v=1.8.55";
+import { UIManager } from "./UIManager.js?v=1.8.55";
+import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.55";
+import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.55";
 
 export class GameScene {
   constructor(canvas, options = {}) {

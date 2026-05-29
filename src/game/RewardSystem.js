@@ -1,5 +1,5 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.54";
+import { CONFIG } from "./config.js?v=1.8.55";
 export class DamageTracker {
   constructor() {
     this.contributions = new Map();

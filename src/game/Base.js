@@ -1,7 +1,7 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.54";
-import { Entity } from "./Entity.js?v=1.8.54";
-import { distance, randRange } from "./math.js?v=1.8.54";
+import { CONFIG } from "./config.js?v=1.8.55";
+import { Entity } from "./Entity.js?v=1.8.55";
+import { distance, randRange } from "./math.js?v=1.8.55";
 
 const BUILDING_RADIUS = {
   core: 34,
@@ -40,9 +40,10 @@ export class Building extends Entity {
 
   get upgradeCost() {
     const config = CONFIG.base.buildings[this.type];
+    const multiplier = isDefenseType(this.type) ? CONFIG.base.towerUpgradeCostMultiplier || 1 : 1;
     return {
-      gold: Math.round((config.upgradeGold || 0) * (1 + this.level * 0.48)),
-      resources: Math.round((config.upgradeBuild || 0) * (1 + this.level * 0.48))
+      gold: Math.round((config.upgradeGold || 0) * (1 + this.level * 0.48) * multiplier),
+      resources: Math.round((config.upgradeBuild || 0) * (1 + this.level * 0.48) * multiplier)
     };
   }
 

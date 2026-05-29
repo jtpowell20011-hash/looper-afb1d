@@ -429,7 +429,7 @@ export const CONFIG = Object.freeze({
     firstCoreLossDefenseMultiplier: 0.9,
     secondCoreLossDefenseMultiplier: 0.72,
     relocationRadius: 90,
-    generatorTick: 4,
+    generatorTick: 3,
     expansionEnergyBonus: 7,
     objectiveClaimExclusion: 780,
     riverClaimExclusion: 560,
@@ -437,6 +437,7 @@ export const CONFIG = Object.freeze({
     villageClaimExclusion: 520,
     edgeClaimExclusion: 900,
     maxReplots: 3,
+    towerUpgradeCostMultiplier: 0.5,
     passiveRepairDelay: 60,
     passiveRepairPercentPerSecond: 0.015,
     recovery: {
@@ -561,8 +562,8 @@ export const CONFIG = Object.freeze({
         label: "Resource Generator",
         maxHealth: 190,
         energy: 2,
-        goldPerTick: 8,
-        buildPerTick: 6,
+        goldPerTick: 60,
+        buildPerTick: 58,
         upgradeGold: 65,
         upgradeBuild: 55
       }
