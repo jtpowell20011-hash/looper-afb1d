@@ -196,7 +196,7 @@ function appendRoomEvents(room, events = [], player = {}) {
 
 function sanitizeCombatEvent(rawEvent = {}, player = {}) {
   const type = String(rawEvent.type || "");
-  if (!["damage", "projectile", "area", "mobDefeated", "playerDefeated", "playerEliminated", "coreDestroyed"].includes(type)) {
+  if (!["damage", "projectile", "area", "chestOpened", "mobDefeated", "playerDefeated", "playerEliminated", "coreDestroyed"].includes(type)) {
     return null;
   }
   const id = String(rawEvent.id || `${player.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
@@ -281,6 +281,27 @@ function sanitizeCombatEvent(rawEvent = {}, player = {}) {
       rewardGold: Math.max(0, Math.min(10000, Math.round(Number(rawEvent.rewardGold || 0)))),
       rewardResources: Math.max(0, Math.min(10000, Math.round(Number(rawEvent.rewardResources || 0)))),
       rewardXP: Math.max(0, Math.min(10000, Math.round(Number(rawEvent.rewardXP || 0))))
+    };
+  }
+  if (type === "chestOpened") {
+    const openerId = String(rawEvent.openerId || "").slice(0, 80);
+    const chestId = String(rawEvent.chestId || targetId || "").slice(0, 100);
+    if (!openerId || !chestId) {
+      return null;
+    }
+    return {
+      ...base,
+      targetOwnerId: String(rawEvent.targetOwnerId || openerId).slice(0, 80),
+      targetId: chestId,
+      chestId,
+      openerId,
+      openerName: String(rawEvent.openerName || "Player").slice(0, 28),
+      chestKind: String(rawEvent.chestKind || "loot").slice(0, 16),
+      chestTier: Math.max(1, Math.min(5, Math.round(Number(rawEvent.chestTier || 1)))),
+      x: Math.round(Number(rawEvent.x || 0)),
+      y: Math.round(Number(rawEvent.y || 0)),
+      rewardGold: Math.max(0, Math.min(10000, Math.round(Number(rawEvent.rewardGold || 0)))),
+      rewardResources: Math.max(0, Math.min(10000, Math.round(Number(rawEvent.rewardResources || 0))))
     };
   }
   const victimId = String(rawEvent.victimId || targetOwnerId || "").slice(0, 80);

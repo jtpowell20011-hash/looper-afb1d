@@ -17,8 +17,9 @@ export const CONFIG = Object.freeze({
       label: "Small",
       width: 8400,
       height: 6300,
-      campDensity: 0.7,
-      minorCampCount: 28,
+      campDensity: 0.35,
+      minorCampCount: 12,
+      mobDensityMultiplier: 0.55,
       treeCount: 72,
       rockCount: 34
     },
@@ -26,8 +27,9 @@ export const CONFIG = Object.freeze({
       label: "Medium",
       width: 16800,
       height: 12600,
-      campDensity: 1.25,
-      minorCampCount: 62,
+      campDensity: 0.95,
+      minorCampCount: 42,
+      mobDensityMultiplier: 0.82,
       treeCount: 138,
       rockCount: 66
     },
@@ -37,6 +39,7 @@ export const CONFIG = Object.freeze({
       height: 25200,
       campDensity: 2.05,
       minorCampCount: 130,
+      mobDensityMultiplier: 1,
       treeCount: 300,
       rockCount: 140
     }
@@ -185,7 +188,8 @@ export const CONFIG = Object.freeze({
     hudUpdateHz: 10
   },
   multiplayer: {
-    maxSyncedMobs: 360
+    maxSyncedMobs: 360,
+    maxSyncedDeployables: 24
   },
   recall: {
     duration: 8,

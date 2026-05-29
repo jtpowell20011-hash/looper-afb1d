@@ -1,9 +1,9 @@
 // @ts-check
-import { BaseController } from "./Base.js?v=1.8.56";
-import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.56";
-import { CONFIG } from "./config.js?v=1.8.56";
-import { Player } from "./Player.js?v=1.8.56";
-import { clamp, distance, distanceSq, normalize, randRange } from "./math.js?v=1.8.56";
+import { BaseController } from "./Base.js?v=1.8.57";
+import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.57";
+import { CONFIG } from "./config.js?v=1.8.57";
+import { Player } from "./Player.js?v=1.8.57";
+import { clamp, distance, distanceSq, normalize, randRange } from "./math.js?v=1.8.57";
 
 const AI_NAMES = ["Ash Vane", "Mira Core", "Dax Hollow", "Rune Vale", "Kira Forge", "Sol Warden", "Nyx Cairn"];
 const AI_COLORS = ["#ff8068", "#b391f0", "#ffb26a", "#e85b58", "#63d46b", "#f0c85d", "#6ec7d6"];
