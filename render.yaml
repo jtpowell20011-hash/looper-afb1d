@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: basebound-prototype
+    env: node
+    buildCommand: npm run build:pwa
+    startCommand: node server.js
+    envVars:
+      - key: STATIC_DIR
+        value: dist
+      - key: HOST
+        value: 0.0.0.0

@@ -1,0 +1,149 @@
+{
+  "characters": {
+    "ranger": {
+      "portrait": "characters/ranger/portrait.png",
+      "animations": {
+        "idle": {
+          "down": [
+            "characters/ranger/idle/down/frame_01.png",
+            "characters/ranger/idle/down/frame_02.png",
+            "characters/ranger/idle/down/frame_03.png"
+          ],
+          "up": [
+            "characters/ranger/idle/up/frame_01.png",
+            "characters/ranger/idle/up/frame_02.png",
+            "characters/ranger/idle/up/frame_03.png"
+          ],
+          "left": [
+            "characters/ranger/idle/left/frame_01.png",
+            "characters/ranger/idle/left/frame_02.png",
+            "characters/ranger/idle/left/frame_03.png"
+          ],
+          "right": [
+            "characters/ranger/idle/right/frame_01.png",
+            "characters/ranger/idle/right/frame_02.png",
+            "characters/ranger/idle/right/frame_03.png"
+          ]
+        },
+        "walk": {
+          "down": [
+            "characters/ranger/walk/down/frame_01.png",
+            "characters/ranger/walk/down/frame_02.png",
+            "characters/ranger/walk/down/frame_03.png"
+          ],
+          "up": [
+            "characters/ranger/walk/up/frame_01.png",
+            "characters/ranger/walk/up/frame_02.png",
+            "characters/ranger/walk/up/frame_03.png",
+            "characters/ranger/walk/up/frame_04.png"
+          ],
+          "left": [
+            "characters/ranger/walk/left/frame_01.png",
+            "characters/ranger/walk/left/frame_02.png",
+            "characters/ranger/walk/left/frame_03.png",
+            "characters/ranger/walk/left/frame_04.png"
+          ],
+          "right": [
+            "characters/ranger/walk/right/frame_01.png",
+            "characters/ranger/walk/right/frame_02.png",
+            "characters/ranger/walk/right/frame_03.png",
+            "characters/ranger/walk/right/frame_04.png"
+          ]
+        },
+        "attack": {
+          "down": [
+            "characters/ranger/attack/down/frame_01.png",
+            "characters/ranger/attack/down/frame_02.png",
+            "characters/ranger/attack/down/frame_03.png",
+            "characters/ranger/attack/down/frame_04.png"
+          ],
+          "up": [
+            "characters/ranger/attack/up/frame_01.png",
+            "characters/ranger/attack/up/frame_02.png",
+            "characters/ranger/attack/up/frame_03.png",
+            "characters/ranger/attack/up/frame_04.png"
+          ],
+          "left": [
+            "characters/ranger/attack/left/frame_01.png",
+            "characters/ranger/attack/left/frame_02.png",
+            "characters/ranger/attack/left/frame_03.png",
+            "characters/ranger/attack/left/frame_04.png"
+          ],
+          "right": [
+            "characters/ranger/attack/right/frame_01.png",
+            "characters/ranger/attack/right/frame_02.png",
+            "characters/ranger/attack/right/frame_03.png",
+            "characters/ranger/attack/right/frame_04.png"
+          ]
+        }
+      }
+    }
+  },
+  "mobs": {
+    "hooded_rogue": {
+      "main": "mobs/hooded_rogue/main.png",
+      "down": "mobs/hooded_rogue/down.png",
+      "up": "mobs/hooded_rogue/up.png",
+      "left": "mobs/hooded_rogue/left.png",
+      "right": "mobs/hooded_rogue/right.png",
+      "action_01": "mobs/hooded_rogue/action_01.png",
+      "action_02": "mobs/hooded_rogue/action_02.png"
+    },
+    "skeletal_swordsman": {
+      "main": "mobs/skeletal_swordsman/main.png",
+      "down": "mobs/skeletal_swordsman/down.png",
+      "up": "mobs/skeletal_swordsman/up.png",
+      "left": "mobs/skeletal_swordsman/left.png",
+      "right": "mobs/skeletal_swordsman/right.png",
+      "action_01": "mobs/skeletal_swordsman/action_01.png",
+      "action_02": "mobs/skeletal_swordsman/action_02.png"
+    },
+    "goblin_spearer": {
+      "main": "mobs/goblin_spearer/main.png",
+      "down": "mobs/goblin_spearer/down.png",
+      "up": "mobs/goblin_spearer/up.png",
+      "left": "mobs/goblin_spearer/left.png",
+      "right": "mobs/goblin_spearer/right.png",
+      "action_01": "mobs/goblin_spearer/action_01.png",
+      "action_02": "mobs/goblin_spearer/action_02.png"
+    },
+    "plague_cultist": {
+      "main": "mobs/plague_cultist/main.png",
+      "down": "mobs/plague_cultist/down.png",
+      "up": "mobs/plague_cultist/up.png",
+      "left": "mobs/plague_cultist/left.png",
+      "right": "mobs/plague_cultist/right.png",
+      "action_01": "mobs/plague_cultist/action_01.png",
+      "action_02": "mobs/plague_cultist/action_02.png"
+    },
+    "armored_brute": {
+      "main": "mobs/armored_brute/main.png",
+      "down": "mobs/armored_brute/down.png",
+      "up": "mobs/armored_brute/up.png",
+      "left": "mobs/armored_brute/left.png",
+      "right": "mobs/armored_brute/right.png",
+      "action_01": "mobs/armored_brute/action_01.png",
+      "action_02": "mobs/armored_brute/action_02.png"
+    },
+    "wraith": {
+      "main": "mobs/wraith/main.png",
+      "down": "mobs/wraith/down.png",
+      "up": "mobs/wraith/up.png",
+      "left": "mobs/wraith/left.png",
+      "right": "mobs/wraith/right.png",
+      "action_01": "mobs/wraith/action_01.png",
+      "action_02": "mobs/wraith/action_02.png"
+    }
+  },
+  "buildings": {
+    "archer_tower": "buildings/towers/archer_tower.png",
+    "ballista_tower": "buildings/towers/ballista_tower.png",
+    "arcane_tower": "buildings/towers/arcane_tower.png",
+    "watch_tower": "buildings/towers/watch_tower.png"
+  },
+  "references": {
+    "ranger_sheet.png": "references/ranger_sheet.png",
+    "enemy_sheet.png": "references/enemy_sheet.png",
+    "tower_concept_sheet.png": "references/tower_concept_sheet.png"
+  }
+}

@@ -1,13 +1,15 @@
 {
-  "name": "looper",
+  "name": "basebound-prototype",
   "version": "0.1.0",
   "private": true,
-  "description": "Personal loopable audio library for locally imported videos and audio.",
+  "description": "Browser-based Basebound single-player prototype.",
   "scripts": {
     "build:pwa": "node scripts/build-pwa.mjs",
     "build:pwa:windows": "powershell -ExecutionPolicy Bypass -File scripts/build-pwa.ps1",
     "start": "node server.js",
-    "test": "node test/domain.test.js"
+    "start:multiplayer": "powershell -ExecutionPolicy Bypass -File scripts/start-multiplayer-server.ps1",
+    "start:lan": "powershell -ExecutionPolicy Bypass -File scripts/start-mobile-server.ps1",
+    "test": "node test/smoke.test.js"
   },
   "engines": {
     "node": ">=20"

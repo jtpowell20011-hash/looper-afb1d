@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$ruleName = "Looper Dev Server 4173"
+$ruleName = "Basebound Multiplayer Server 4174"
 
 $existingRule = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
 if ($existingRule) {
@@ -13,7 +13,7 @@ New-NetFirewallRule `
   -Direction Inbound `
   -Action Allow `
   -Protocol TCP `
-  -LocalPort 4173 `
+  -LocalPort 4174 `
   -Profile Private
 
-Write-Host "Allowed inbound TCP traffic on port 4173 for Private networks."
+Write-Host "Allowed inbound TCP traffic on port 4174 for Private networks."

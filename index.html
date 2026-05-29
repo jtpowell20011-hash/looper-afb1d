@@ -3,214 +3,626 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#07090f">
+    <meta name="theme-color" content="#162515">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="Looper">
+    <meta name="apple-mobile-web-app-title" content="Basebound">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>Looper</title>
+    <title>Basebound</title>
     <link rel="manifest" href="manifest.webmanifest">
-    <link rel="apple-touch-icon" href="assets/app-icon.svg">
-    <link rel="stylesheet" href="styles.css?v=0.7.0">
+    <link rel="stylesheet" href="styles.css?v=1.8.43">
   </head>
   <body>
-    <main class="sound-app">
-      <header class="app-header">
+    <main class="game-shell" aria-label="Basebound prototype">
+      <canvas id="threeCanvas" class="three-canvas" aria-label="Basebound low poly 3D world"></canvas>
+      <canvas id="gameCanvas" aria-label="Basebound game world"></canvas>
+
+      <section class="top-hud" aria-label="Hero status">
+        <div class="brand-mini">
+          <strong>Basebound</strong>
+          <span id="phaseText">Exploration</span>
+          <em id="phaseTimerText">00:00</em>
+        </div>
+
+        <div class="hero-bars">
+          <div class="meter-line">
+            <span>HP</span>
+            <div class="meter"><span id="healthBar"></span></div>
+            <strong id="healthText">100 / 100</strong>
+          </div>
+          <div id="shieldLine" class="meter-line shield-line" hidden>
+            <span>SH</span>
+            <div class="meter shield"><span id="shieldBar"></span></div>
+            <strong id="shieldText">0</strong>
+          </div>
+          <div class="meter-line">
+            <span>XP</span>
+            <div class="meter xp"><span id="xpBar"></span></div>
+            <strong id="xpText">0 / 100</strong>
+          </div>
+        </div>
+
+        <div class="quick-stats">
+          <span>Class <strong id="classText">Ranger</strong></span>
+          <span>Lv <strong id="levelText">1</strong></span>
+          <span>Gold <strong id="currencyText">0</strong></span>
+          <span>Build <strong id="resourceText">0</strong></span>
+          <span>AP <strong id="abilityPointText">0</strong></span>
+          <span>Attr <strong id="attributePointText">0</strong></span>
+          <span id="statusEffectChip" class="status-effect-chip">Status <strong id="statusEffectText">Ready</strong></span>
+        </div>
+
+        <div class="hud-actions">
+          <button id="lootPanelButton" class="drawer-toggle secondary" type="button">Loot</button>
+          <button id="shopPanelButton" class="drawer-toggle secondary" type="button">Shop</button>
+          <button id="basePanelButton" class="drawer-toggle secondary" type="button" hidden>Base</button>
+          <button id="cameraLockButton" class="drawer-toggle secondary" type="button">Lock</button>
+          <button id="settingsButton" class="drawer-toggle secondary" type="button">Settings</button>
+          <button id="drawerToggleButton" class="drawer-toggle" type="button">Inventory</button>
+        </div>
+      </section>
+
+      <section id="targetInfoPanel" class="target-info-panel" aria-label="Selected target" hidden>
         <div>
-          <p class="eyebrow">Personal loop library</p>
-          <h1>Looper</h1>
+          <strong id="targetInfoName">Target</strong>
+          <span id="targetInfoMeta">L1 Enemy</span>
         </div>
-        <p id="statusText" class="status-pill" aria-live="polite">Ready</p>
-      </header>
-
-      <nav class="tab-bar" aria-label="Library sections">
-        <button class="is-active" type="button" data-view="sounds">Sounds <span id="soundCount">0</span></button>
-        <button type="button" data-view="liked">Liked <span id="likedCount">0</span></button>
-        <button type="button" data-view="playlists">Playlists <span id="playlistCount">0</span></button>
-        <button type="button" data-view="trending">Trending</button>
-        <button type="button" data-view="top">Top</button>
-      </nav>
-
-      <section class="import-dock" aria-label="Import media">
-        <form id="importForm" class="import-form">
-          <label class="file-picker">
-            <span>Import</span>
-            <input id="audioFile" name="audioFile" type="file" accept="audio/*,video/*,.loopshare,.talshare,application/json" required>
-          </label>
-          <label class="trim-control">
-            <span>Auto trim</span>
-            <input id="trimEndSec" name="trimEndSec" type="number" min="0" step="0.5" value="4">
-            <span>sec</span>
-          </label>
-          <button type="submit">Import</button>
-        </form>
+        <div class="meter target"><span id="targetInfoHealthBar"></span></div>
+        <em id="targetInfoHealthText">0 / 0 HP</em>
       </section>
 
-      <section class="tool-panel" aria-label="Library tools">
-        <label class="search-field">
-          <span>Search</span>
-          <input id="searchInput" type="search" placeholder="Search sounds or artists" autocomplete="off">
+      <section id="recallCastPanel" class="recall-cast-panel" aria-label="Recall channel" hidden>
+        <strong>Recall</strong>
+        <div class="meter recall"><span id="recallCastBar"></span></div>
+        <em id="recallCastText">8.0s</em>
+      </section>
+
+      <section class="build-hotbar" aria-label="Base building hotbar">
+        <div class="base-summary">
+          <strong id="baseStatusText">No Core</strong>
+          <span id="coreHealthText">Core not placed</span>
+          <em id="baseEnergyText">0 / 0 Energy</em>
+        </div>
+        <label class="base-layout-picker">
+          <span>Layout</span>
+          <select id="baseLayoutSelect">
+            <option value="outpost">Outpost</option>
+            <option value="fortress">Fortress</option>
+            <option value="raider">Raider</option>
+            <option value="resource">Resource</option>
+            <option value="scout">Scout</option>
+          </select>
         </label>
-        <form id="playlistForm" class="playlist-form">
-          <input id="playlistName" name="playlistName" type="text" placeholder="New playlist" maxlength="32">
-          <button type="submit">Create</button>
-        </form>
-        <label class="playlist-filter">
-          <span>Playlist</span>
-          <select id="playlistFilter"></select>
-        </label>
+        <span id="baseReplotText" class="base-replot-text">3 replots</span>
+        <button id="placeBaseButton" type="button"><kbd>B</kbd> Preview Core</button>
       </section>
 
-      <section class="queue-panel" aria-label="Queue controls">
-        <button type="button" data-action="toggle-repeat-sound">Repeat sound</button>
-        <button type="button" data-action="toggle-repeat-playlist">Repeat playlist</button>
-        <button type="button" data-action="toggle-shuffle">Shuffle</button>
-        <span id="queueCount">Queue 0</span>
+      <section class="item-hotbar" aria-label="Item hotbar">
+        <button id="hotbarPotionButton" class="item-slot" type="button">
+          <kbd>1</kbd>
+          <strong>Potion</strong>
+          <span id="hotbarPotionText">0</span>
+        </button>
+        <button id="hotbarWardButton" class="item-slot" type="button">
+          <kbd>2</kbd>
+          <strong>Ward</strong>
+          <span id="hotbarWardText">0</span>
+        </button>
       </section>
 
-      <section id="sharePreview" class="share-preview" aria-label="Shared sound preview" hidden>
-        <img id="sharePreviewThumb" alt="">
-        <div class="share-preview-copy">
-          <p class="eyebrow">Shared sound</p>
-          <h2 id="sharePreviewTitle">Preview</h2>
-          <p id="sharePreviewMeta">Listen before saving</p>
-          <div class="share-preview-actions">
-            <button type="button" data-action="preview-play">Listen</button>
-            <select id="sharePlaylistSelect" aria-label="Save to playlist"></select>
-            <button type="button" data-action="save-share">Save</button>
-            <button type="button" data-action="save-share-liked">Like</button>
-          </div>
+      <section class="ability-bar" aria-label="Ability cooldowns">
+        <div id="abilityBasic" class="ability-slot">
+          <kbd>Click</kbd>
+          <strong>Basic</strong>
+          <span>Ready</span>
+        </div>
+        <div id="abilitySkillshot" class="ability-slot">
+          <kbd>Q</kbd>
+          <strong>Skill Shot</strong>
+          <span>Ready</span>
+        </div>
+        <div id="abilityArea" class="ability-slot">
+          <kbd>E</kbd>
+          <strong>Field</strong>
+          <span>Ready</span>
+        </div>
+        <div id="abilityUltimate" class="ability-slot ability-slot-ultimate">
+          <kbd>R</kbd>
+          <strong>Ultimate</strong>
+          <span>Ready</span>
         </div>
       </section>
 
-      <section id="importPreview" class="import-preview" aria-label="Import preview" hidden>
-        <div class="preview-media">
-          <img id="importPreviewThumb" alt="">
-          <canvas id="waveformCanvas" width="900" height="180" aria-label="Audio waveform"></canvas>
+      <section class="minimap-panel" aria-label="Map overview">
+        <canvas id="minimapCanvas" aria-label="Basebound minimap"></canvas>
+      </section>
+
+      <aside id="sideDrawer" class="side-drawer" aria-label="Inventory and match panels" aria-hidden="true">
+        <div class="drawer-heading">
+          <div>
+            <p id="drawerEyebrow" class="eyebrow">Loadout</p>
+            <h2 id="drawerTitle">Loadout</h2>
+          </div>
+          <button id="drawerCloseButton" type="button">Close</button>
         </div>
-        <div class="preview-copy">
-          <p class="eyebrow">Import preview</p>
-          <h2 id="importPreviewTitle">Preview</h2>
-          <div class="preview-stats">
-            <span>Detected <strong id="originalDuration">00:00</strong></span>
-            <span>Trimmed <strong id="trimmedDuration">00:00</strong></span>
+
+        <nav class="drawer-tabs" aria-label="Inventory pages">
+          <button id="loadoutTabButton" class="is-active" type="button" data-drawer-tab="loadout">Loadout</button>
+          <button id="inventoryTabButton" type="button" data-drawer-tab="inventory">Inventory</button>
+          <button id="shopTabButton" type="button" data-drawer-tab="shop">Shop</button>
+          <button id="baseTabButton" type="button" data-drawer-tab="base">Upgrades</button>
+          <button id="matchTabButton" type="button" data-drawer-tab="match">Match</button>
+        </nav>
+
+        <section id="loadoutPanel" class="drawer-page is-active">
+          <section class="drawer-section">
+            <div class="panel-row">
+              <span>Equipped</span>
+              <strong id="equippedLootText">None</strong>
+            </div>
+            <div id="equipmentSlots" class="equipment-grid"></div>
+            <div class="panel-row">
+              <span>Choose Gear</span>
+              <strong id="selectedSlotText">Select a slot</strong>
+            </div>
+            <div id="slotChoiceList" class="inventory-list"></div>
+          </section>
+
+          <section class="drawer-section">
+            <div class="panel-row">
+              <span>Upgrade Points</span>
+              <strong id="pointsText">0 pts</strong>
+            </div>
+            <div class="point-cards">
+              <div><span>Ability Points</span><strong id="loadoutAbilityPointText">0</strong></div>
+              <div><span>Attribute Points</span><strong id="loadoutAttributePointText">0</strong></div>
+            </div>
+            <p class="hint-text">Level up for 2 attribute points. Every 5th level grants 1 ability point.</p>
+            <p class="eyebrow">Stats</p>
+            <div id="statsList" class="stats-list"></div>
+          </section>
+
+          <section class="drawer-section">
+            <p class="eyebrow">Abilities</p>
+            <div id="skillUpgradeList" class="upgrade-list"></div>
+          </section>
+
+          <section class="drawer-section">
+            <p class="eyebrow">Attributes</p>
+            <div id="attributeUpgradeList" class="upgrade-list"></div>
+          </section>
+        </section>
+
+        <section id="inventoryPanel" class="drawer-page">
+          <section class="drawer-section">
+          <div class="panel-row">
+            <span>Nearby Loot</span>
+            <strong id="nearbyLootText">None</strong>
           </div>
-          <div class="range-stack">
-            <label>
-              Start
-              <input id="trimStartRange" type="range" min="0" max="100" step="0.1" value="0">
-            </label>
-            <label>
-              End
-              <input id="trimEndRange" type="range" min="0" max="100" step="0.1" value="100">
-            </label>
+          <button id="pickupAllLootButton" type="button">Pick Up Nearby</button>
+          <div id="nearbyLootList" class="inventory-list"></div>
+          </section>
+
+          <section class="drawer-section">
+          <div class="panel-row">
+            <span>Backpack</span>
+            <strong id="carryCapacityText">0 / 10</strong>
           </div>
-          <div class="preview-actions">
-            <button type="button" data-action="play-original">Play Original</button>
-            <button type="button" data-action="play-trimmed">Play Trimmed</button>
-            <button type="button" data-action="adjust-trim">Adjust Trim</button>
-            <button type="button" data-action="loop-preview">Loop Preview</button>
-            <button type="button" data-action="save-preview">Save to Library</button>
-            <button type="button" data-action="discard-preview">Discard</button>
+          <button id="depositLootButton" type="button">Store Backpack at Core</button>
+          <div id="inventoryList" class="inventory-list"></div>
+          </section>
+
+          <section class="drawer-section">
+          <div class="panel-row">
+            <span>Core Storage</span>
+            <strong id="coreStorageText">0 items</strong>
           </div>
+          <div id="coreStorageList" class="inventory-list"></div>
+          </section>
+        </section>
+
+        <section id="shopPanel" class="drawer-page">
+          <section class="drawer-section">
+            <div class="panel-row">
+              <span>Core Shop</span>
+              <strong id="shopStatusText">Away</strong>
+            </div>
+            <p class="hint-text">Shop access is active only near your base core.</p>
+            <button id="buyWardButton" type="button">Buy Ward - 55g</button>
+            <button id="buyEquipmentButton" type="button">Buy Standard Gear</button>
+            <button id="buyUncommonEquipmentButton" type="button">Buy Uncommon Gear</button>
+            <button id="buyRareEquipmentButton" type="button">Buy Rare Gear</button>
+            <button id="buyEpicEquipmentButton" type="button">Buy Epic Gear</button>
+            <button id="buyPotionButton" type="button">Buy Potion</button>
+            <button id="usePotionButton" type="button">Use Potion</button>
+            <div class="panel-row">
+              <span>Wards</span>
+              <strong id="wardCountText">0</strong>
+            </div>
+            <div class="panel-row">
+              <span>Potions</span>
+              <strong id="potionCountText">0</strong>
+            </div>
+          </section>
+
+          <section class="drawer-section">
+            <div class="panel-row">
+              <span>Sell Items</span>
+              <strong>Gold</strong>
+            </div>
+            <div id="sellInventoryList" class="inventory-list"></div>
+          </section>
+        </section>
+
+        <section id="basePanel" class="drawer-page">
+          <section class="drawer-section">
+            <div class="panel-row">
+              <span>Base Upgrades</span>
+              <strong id="baseUpgradeStatusText">Near core</strong>
+            </div>
+            <p class="hint-text">Upgrade the core, defenses, wall health, repairs, and rebuilt walls from this panel.</p>
+            <div class="base-upgrade-actions">
+              <button id="upgradeCoreButton" type="button">Core +</button>
+              <button id="upgradeTowerButton" type="button">Tower +</button>
+              <button id="upgradeGeneratorButton" type="button">Gen +</button>
+            </div>
+          </section>
+
+          <section class="drawer-section">
+            <div class="panel-row">
+              <span>Defense Shop</span>
+              <strong>Core gated</strong>
+            </div>
+            <button id="buyBallistaButton" type="button">Ballista - Core needed</button>
+            <button id="buyBarracksButton" type="button">Barracks - Core needed</button>
+            <button id="buyPulseTowerButton" type="button">Pulse Tower - Core needed</button>
+            <button id="upgradeBallistaButton" type="button">Ballista +</button>
+            <button id="upgradeBarracksButton" type="button">Barracks +</button>
+            <button id="upgradePulseTowerButton" type="button">Pulse +</button>
+            <button id="upgradeWallHealthButton" type="button">Wall Health +</button>
+            <button id="repairWallsButton" type="button">Repair Walls</button>
+            <button id="rebuildWallsButton" type="button">Rebuild Destroyed Walls</button>
+          </section>
+
+          <section class="drawer-section">
+            <div class="panel-row">
+              <span>Upgrade List</span>
+              <strong id="upgradeListFilterText">All</strong>
+            </div>
+            <div id="buildingUpgradeList" class="inventory-list"></div>
+          </section>
+        </section>
+
+        <section id="matchPanel" class="drawer-page">
+          <section class="drawer-section">
+          <div class="panel-row">
+            <span>Base</span>
+            <strong id="rebuildText">0 / 2 rebuilds</strong>
+          </div>
+          <div class="meter core"><span id="coreHealthBar"></span></div>
+          <p id="baseHintText" class="hint-text">Press B to preview a core layout, then left click to deploy it.</p>
+          </section>
+
+          <section class="drawer-section">
+          <p class="eyebrow">Objectives</p>
+          <div id="objectiveList" class="objective-list"></div>
+          </section>
+
+          <section class="drawer-section debug-section">
+          <p class="eyebrow">Debug</p>
+          <div class="debug-grid">
+            <button id="debugCurrencyButton" type="button">F1 Funds</button>
+            <button id="debugXpButton" type="button">F2 XP</button>
+            <button id="debugCoreButton" type="button">F3 Core Hit</button>
+            <button id="debugMobButton" type="button">F4 Mobs</button>
+            <button id="debugPhaseButton" type="button">F5 Phase</button>
+            <button id="resetButton" type="button">F6 Reset</button>
+          </div>
+          </section>
+        </section>
+      </aside>
+
+      <section id="messageOverlay" class="message-overlay" hidden>
+        <div class="message-card">
+          <p id="messageEyebrow" class="eyebrow">Match Complete</p>
+          <h2 id="messageTitle">Victory</h2>
+          <p id="messageBody">You survived the prototype loop.</p>
+          <button id="overlayResetButton" type="button">Restart Match</button>
         </div>
       </section>
 
-      <section id="audioList" class="sound-list" aria-label="Saved sounds"></section>
+      <section id="mainMenu" class="main-menu" aria-label="Basebound main menu">
+        <div class="menu-frame">
+          <div class="menu-world-art" aria-hidden="true">
+            <span class="menu-river"></span>
+            <span class="menu-bridge"></span>
+            <span class="menu-hut hut-a"></span>
+            <span class="menu-hut hut-b"></span>
+            <span class="menu-core-art"></span>
+            <span class="menu-tower-art"></span>
+          </div>
+          <div class="menu-shade" aria-hidden="true"></div>
+          <div id="menuBreadcrumb" class="menu-breadcrumb" hidden>BASEBOUND / <span id="menuScreenName">Menu</span></div>
+          <div id="menuStatusText" class="menu-status-toast">Choose a mode to enter the Wildlands.</div>
 
-      <section id="nowPlayingBar" class="now-playing" aria-label="Now playing" hidden>
-        <button class="transport" type="button" data-action="previous-track" aria-label="Previous track">Prev</button>
-        <button class="transport is-main" type="button" data-action="toggle-current" aria-label="Play or pause">Play</button>
-        <button class="transport" type="button" data-action="next-track" aria-label="Next track">Next</button>
-        <div class="now-copy">
-          <strong id="nowTitle">Nothing playing</strong>
-          <span id="nowSubtitle">Looping forever</span>
+          <section id="menuScreenMain" class="menu-screen menu-screen-main is-active" data-menu-screen="main">
+            <div class="menu-logo-block">
+              <p class="eyebrow">Solo AI Playtest</p>
+              <h1>Basebound</h1>
+              <span>Fantasy Action Strategy Survival</span>
+              <i></i>
+              <strong>Choose a mode to enter the Wildlands.</strong>
+            </div>
+            <nav class="menu-main-actions" aria-label="Main menu">
+              <button id="menuPlayButton" class="menu-primary-action" type="button">Play</button>
+              <button id="menuGalleryButton" type="button">Character Gallery</button>
+              <button id="menuHowToPlayButton" type="button">How to Play</button>
+              <button id="menuSettingsButton" type="button">Settings</button>
+            </nav>
+            <span class="menu-version">Prototype v1.8.43</span>
+          </section>
+
+          <section id="menuScreenMode" class="menu-screen" data-menu-screen="mode" hidden>
+            <button id="modeBackButton" class="menu-back-button" type="button">Back</button>
+            <div class="menu-screen-heading">
+              <h2>Select Mode</h2>
+              <p>Choose how you want to enter the Wildlands.</p>
+            </div>
+            <div class="mode-card-list">
+              <button id="soloModeButton" class="mode-card is-active" type="button">
+                <span class="mode-icon">AI</span>
+                <strong>Single Player vs Bots</strong>
+                <em>Explore, build, fight objectives, and test the core loop against AI rivals.</em>
+                <small>Available</small>
+              </button>
+              <button id="multiplayerModeButton" class="mode-card is-disabled" type="button" disabled>
+                <span class="mode-icon">MP</span>
+                <strong>Multiplayer</strong>
+                <em>Room codes, online lobbies, ready checks, and competitive matches are prepared for a later pass.</em>
+                <small>Coming Soon</small>
+              </button>
+            </div>
+          </section>
+
+          <section id="menuScreenSetup" class="menu-screen" data-menu-screen="setup" hidden>
+            <button id="setupBackButton" class="menu-back-button" type="button">Back</button>
+            <div class="menu-screen-heading">
+              <h2>Match Setup</h2>
+              <p>Configure the AI skirmish before choosing your hero.</p>
+            </div>
+            <div class="setup-layout">
+              <section class="menu-panel setup-panel-wide">
+                <div class="panel-row">
+                  <span>Map Size</span>
+                  <strong id="selectedMapSizeText">Large</strong>
+                </div>
+                <div id="mapSizeCardList" class="map-size-card-list"></div>
+                <select id="mapSizeSelect" class="sr-only" aria-label="Map Size">
+                  <option value="small">Small</option>
+                  <option value="medium">Medium</option>
+                  <option value="large" selected>Large</option>
+                </select>
+              </section>
+
+              <section class="menu-panel">
+                <div class="panel-row">
+                  <span>Player</span>
+                  <strong id="selectedAiCountText">1 AI</strong>
+                </div>
+                <label class="menu-field">
+                  <span>Name</span>
+                  <input id="playerNameInput" type="text" maxlength="24" value="Basebound Scout">
+                </label>
+                <div id="aiCountButtonList" class="ai-count-button-list"></div>
+                <select id="aiCountSelect" class="sr-only" aria-label="AI Opponents">
+                  <option value="0">0 AI players</option>
+                  <option value="1" selected>1 AI player</option>
+                  <option value="2">2 AI players</option>
+                  <option value="3">3 AI players</option>
+                  <option value="4">4 AI players</option>
+                  <option value="5">5 AI players</option>
+                  <option value="6">6 AI players</option>
+                  <option value="7">7 AI players</option>
+                </select>
+              </section>
+
+              <section class="menu-panel">
+                <div class="panel-row">
+                  <span>World Rules</span>
+                  <strong id="worldRuleSummaryText">All On</strong>
+                </div>
+                <div class="world-toggle-list">
+                  <button id="toggleBossesButton" type="button" data-world-option="bosses">Boss Objectives</button>
+                  <button id="toggleTowersButton" type="button" data-world-option="towers">Neutral Towers</button>
+                  <button id="toggleVillagesButton" type="button" data-world-option="villages">Villages</button>
+                </div>
+              </section>
+
+              <section class="network-panel setup-panel-wide">
+                <div>
+                  <span>Multiplayer Platform</span>
+                  <strong id="shareUrlText">Paused</strong>
+                  <em id="networkHintText">Online rooms are on hold while the solo AI loop is tested.</em>
+                </div>
+                <button id="refreshNetworkButton" type="button">Refresh</button>
+              </section>
+
+              <section class="menu-panel setup-panel-wide">
+                <div class="panel-row">
+                  <span>Future Room Tools</span>
+                  <strong>Paused</strong>
+                </div>
+                <div class="room-tool-grid">
+                  <button id="createRoomButton" type="button" disabled>Multiplayer Paused</button>
+                  <label class="menu-field">
+                    <span>Room Code</span>
+                    <input id="roomCodeInput" type="text" maxlength="8" placeholder="ABCDE">
+                  </label>
+                  <button id="joinRoomButton" type="button" disabled>Joining Paused</button>
+                </div>
+              </section>
+            </div>
+            <div class="menu-footer-actions">
+              <button id="setupContinueButton" class="menu-primary-action" type="button">Choose Your Hero</button>
+            </div>
+          </section>
+
+          <section id="menuScreenCharacter" class="menu-screen" data-menu-screen="character" hidden>
+            <button id="characterBackButton" class="menu-back-button" type="button">Back</button>
+            <div class="menu-screen-heading">
+              <h2 id="characterScreenTitle">Choose Your Hero</h2>
+              <p id="characterScreenSubtitle">Pick a class whose strengths match the match you want to play.</p>
+            </div>
+            <section class="character-select-panel" aria-label="Character selection">
+              <div>
+                <div class="panel-row">
+                  <span>Character</span>
+                  <strong id="selectedCharacterPill">Ranger</strong>
+                </div>
+                <div id="characterCardList" class="character-card-list"></div>
+              </div>
+              <aside class="character-overview">
+                <div class="character-overview-heading">
+                  <div>
+                    <p id="characterRoleText" class="eyebrow">Ranged poke / AoE pressure</p>
+                    <h2 id="characterNameText">Ranger</h2>
+                  </div>
+                  <strong id="characterDifficultyText">Difficulty 2/5</strong>
+                </div>
+                <p id="characterSummaryText" class="character-summary">Balanced ranged scout.</p>
+                <div id="characterTagList" class="character-tag-list"></div>
+                <div id="characterStatBars" class="character-stat-bars"></div>
+                <div class="character-notes">
+                  <div>
+                    <span>Strengths</span>
+                    <ul id="characterStrengthList"></ul>
+                  </div>
+                  <div>
+                    <span>Weaknesses</span>
+                    <ul id="characterWeaknessList"></ul>
+                  </div>
+                </div>
+                <div id="characterAbilityList" class="character-ability-list"></div>
+              </aside>
+            </section>
+            <div class="menu-footer-actions">
+              <button id="characterReadyButton" class="menu-primary-action" type="button">Ready Up</button>
+            </div>
+          </section>
+
+          <section id="menuScreenReady" class="menu-screen" data-menu-screen="ready" hidden>
+            <button id="readyBackButton" class="menu-back-button" type="button">Back</button>
+            <div class="menu-screen-heading">
+              <h2>Ready to Enter the Wildlands</h2>
+              <p>Review your setup before the match begins.</p>
+            </div>
+            <div class="ready-grid">
+              <section class="menu-panel">
+                <div class="panel-row">
+                  <span>Your Hero</span>
+                  <strong id="readyHeroText">Ranger</strong>
+                </div>
+                <div id="readyHeroSummary" class="ready-hero-summary"></div>
+              </section>
+              <section class="menu-panel">
+                <div class="panel-row">
+                  <span>Match Settings</span>
+                  <strong id="readyMapText">Large</strong>
+                </div>
+                <div id="readySettingList" class="ready-setting-list"></div>
+              </section>
+            </div>
+            <section id="matchSetupPanel" class="match-setup-panel">
+              <div>
+                <span>AI Rivals</span>
+                <strong id="matchSetupText">Ranger selected.</strong>
+              </div>
+              <div id="matchSetupRoster" class="match-setup-roster"></div>
+            </section>
+            <div class="menu-footer-actions">
+              <button id="soloButton" class="menu-primary-action start-match-button" type="button">Start Match</button>
+            </div>
+          </section>
+
+          <section id="menuScreenLoading" class="menu-screen menu-screen-loading" data-menu-screen="loading" hidden>
+            <div class="loading-mark">Basebound</div>
+            <p id="loadingMessageText">Preparing the Wildlands...</p>
+            <div id="loadingHeroSummary" class="loading-hero-summary"></div>
+            <div class="loading-bar"><span id="loadingProgressBar"></span></div>
+            <strong id="loadingProgressText">0%</strong>
+          </section>
+
+          <section id="menuScreenHowToPlay" class="menu-screen" data-menu-screen="how-to-play" hidden>
+            <button id="howToPlayBackButton" class="menu-back-button" type="button">Back</button>
+            <div class="menu-screen-heading">
+              <h2>How to Play</h2>
+              <p>Basebound is about timing your exploration, base growth, objectives, and raids.</p>
+            </div>
+            <div id="howToPlayList" class="how-to-play-list"></div>
+            <div id="controlsHelpList" class="controls-help-list"></div>
+          </section>
+
+          <section id="roomPanel" class="room-panel" hidden>
+            <div class="panel-row">
+              <span>Room Code</span>
+              <strong id="roomCodeText">-----</strong>
+            </div>
+            <div class="panel-row">
+              <span>Connection</span>
+              <strong id="roomTransportText">Local</strong>
+            </div>
+            <div class="panel-row">
+              <span>Status</span>
+              <strong id="roomStatusText">Lobby</strong>
+            </div>
+            <div class="invite-panel">
+              <span>Invite Link</span>
+              <strong id="inviteUrlText">Create a room to generate a link.</strong>
+              <button id="copyInviteButton" type="button">Copy Invite Link</button>
+            </div>
+            <div id="roomPlayerList" class="room-player-list"></div>
+            <button id="startRoomButton" type="button">Start Game</button>
+          </section>
         </div>
       </section>
 
-      <audio id="mainAudio" preload="metadata"></audio>
-      <audio id="previewAudio" preload="metadata"></audio>
+      <section id="settingsOverlay" class="settings-overlay" aria-label="Settings" hidden>
+        <div class="settings-card">
+          <div class="drawer-heading">
+            <div>
+              <p class="eyebrow">Controls</p>
+              <h2>Settings</h2>
+            </div>
+            <button id="settingsCloseButton" type="button">Close</button>
+          </div>
+          <p id="settingsStatusText" class="hint-text">Click a control, then press the new key.</p>
+          <div id="keybindingList" class="keybinding-list"></div>
+          <button id="leaveGameButton" class="danger-button" type="button" hidden>Leave Match</button>
+          <section id="leaveConfirmPanel" class="confirm-panel" hidden>
+            <strong>Leave current match?</strong>
+            <span>Your current run will end and you will return to the main menu.</span>
+            <div>
+              <button id="confirmLeaveButton" class="danger-button" type="button">Leave Match</button>
+              <button id="cancelLeaveButton" type="button">Stay</button>
+            </div>
+          </section>
+          <button id="settingsResetButton" type="button">Reset Keybindings</button>
+        </div>
+      </section>
     </main>
 
-    <template id="audioRowTemplate">
-      <article class="sound-row">
-        <button class="thumb-button" type="button" data-action="toggle-row">
-          <img class="thumb-image" alt="">
-          <span class="play-glyph" aria-hidden="true"></span>
-        </button>
-        <div class="sound-copy">
-          <div class="sound-heading">
-            <button class="sound-title-button" type="button" data-action="select-row"></button>
-            <div class="quick-actions">
-              <button class="icon-button" type="button" data-action="toggle-like">Like</button>
-              <button class="icon-button" type="button" data-action="toggle-playlist">List</button>
-              <button class="icon-button" type="button" data-action="share-audio">Share</button>
-              <button class="icon-button" type="button" data-action="queue-next">Next</button>
-              <button class="icon-button" type="button" data-action="select-row">Edit</button>
-            </div>
-          </div>
-          <p class="sound-artist"></p>
-          <p class="sound-duration"></p>
-          <p class="sound-meta"></p>
-          <p class="sound-context"></p>
-          <div class="playlist-badges"></div>
-          <div class="inline-controls" hidden>
-            <label>
-              Name
-              <input data-field="title" type="text">
-            </label>
-            <label>
-              Artist
-              <input data-field="artist" type="text">
-            </label>
-            <label>
-              Creator
-              <input data-field="creator_name" type="text">
-            </label>
-            <label>
-              Source URL
-              <input data-field="source_url" type="url">
-            </label>
-            <label>
-              Tags
-              <input data-field="tagsText" type="text" placeholder="gym, night drive">
-            </label>
-            <label>
-              Notes
-              <input data-field="notes" type="text" placeholder="Good loop starts at 0:11">
-            </label>
-            <label>
-              Loop start
-              <input data-field="loopStartSec" type="number" min="0" step="0.1">
-            </label>
-            <label>
-              Loop end
-              <input data-field="loopEndSec" type="number" min="0" step="0.1">
-            </label>
-            <label>
-              Mode
-              <select data-field="loopLimitMode">
-                <option value="forever">Forever</option>
-                <option value="timed">Timed</option>
-              </select>
-            </label>
-            <label>
-              Stop after min
-              <input data-field="loopStopAfterMinutes" type="number" min="0" step="0.25">
-            </label>
-            <div class="inline-actions">
-              <button type="button" data-action="toggle-like">Like</button>
-              <button type="button" data-action="toggle-playlist">Playlist</button>
-              <button type="button" data-action="queue-next">Play next</button>
-              <button type="button" data-action="add-queue">Add queue</button>
-              <button type="button" data-action="share-audio">Share</button>
-              <button type="button" data-action="delete-audio">Delete</button>
-            </div>
-          </div>
-        </div>
-      </article>
-    </template>
-
-    <script src="src/domain.js?v=0.7.0" defer></script>
-    <script src="src/app.js?v=0.7.0" defer></script>
+    <script src="assets/vendor/three.r128.min.js?v=1.8.43"></script>
+    <script type="module" src="src/main.js?v=1.8.43"></script>
   </body>
 </html>
+
+
+
+
+
+
+
+
+
+
+
+
