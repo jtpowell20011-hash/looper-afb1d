@@ -112,6 +112,9 @@ export const CHARACTER_CLASSES = Object.freeze({
         range: 88,
         radius: 44,
         color: "#d8c59a",
+        coneAngle: 1.7,
+        closeRadius: 56,
+        rangePerAbilityLevel: 9,
         structureMultiplier: 1.15,
         description: "A short melee bash that hits enemies directly in front of you."
       },
@@ -286,6 +289,9 @@ export const CHARACTER_CLASSES = Object.freeze({
         range: 78,
         radius: 40,
         color: "#b391f0",
+        coneAngle: 1.84,
+        closeRadius: 54,
+        rangePerAbilityLevel: 8,
         stealthBonusMultiplier: 1.7,
         description: "Fast dagger slash. Deals bonus damage when breaking Vanish."
       },
@@ -312,9 +318,9 @@ export const CHARACTER_CLASSES = Object.freeze({
         radius: 0,
         duration: 3.2,
         color: "#7c63c7",
-        untargetableKinds: ["mob", "tower", "objective", "ai"],
+        untargetableKinds: ["mob", "tower", "objective", "ai", "neutralTower", "player", "remotePlayer"],
         breakOnDamageAction: true,
-        description: "Become semi-invisible and untargetable by mobs and towers until you attack or time expires."
+        description: "Become semi-invisible and untargetable by mobs, towers, and enemy players until you attack or time expires."
       },
       ultimate: {
         id: "ultimate",
@@ -447,6 +453,9 @@ export const CHARACTER_CLASSES = Object.freeze({
         range: 92,
         radius: 48,
         color: "#e85b58",
+        coneAngle: 1.8,
+        closeRadius: 58,
+        rangePerAbilityLevel: 10,
         structureMultiplier: 1.08,
         description: "Heavy short-range cleaver swing in front of you."
       },
@@ -614,6 +623,9 @@ export const CHARACTER_CLASSES = Object.freeze({
         range: 132,
         radius: 28,
         color: "#9bb0ff",
+        coneAngle: 1.35,
+        closeRadius: 48,
+        rangePerAbilityLevel: 8,
         description: "A narrow forward spear thrust with slightly longer melee reach."
       },
       skillshot: {

@@ -188,15 +188,28 @@ export const CONFIG = Object.freeze({
     hudUpdateHz: 10
   },
   multiplayer: {
-    maxSyncedMobs: 360,
-    maxSyncedDeployables: 24,
+    maxSyncedMobs: 280,
+    maxSyncedMobsByMapSize: {
+      small: 120,
+      medium: 190,
+      large: 250
+    },
+    maxSyncedDeployables: 18,
+    playerSyncIntervalMs: 125,
+    pollIntervalMs: 650,
+    maxEventsPerSync: 24,
     // How often the host streams the world (mobs/boss) to other players. Lower
     // cadence + client-side interpolation keeps movement smooth without flooding
     // the relay (which also starved player-position updates).
-    worldSyncIntervalMs: 200,
+    worldSyncIntervalMs: 425,
     // Only stream mobs within this range of any player so far-field mobs do not
     // bloat the snapshot. Tuned a bit beyond a screen so they ease in cleanly.
-    syncMobRadius: 1700
+    syncMobRadius: 1550,
+    syncMobRadiusByMapSize: {
+      small: 1250,
+      medium: 1450,
+      large: 1650
+    }
   },
   recall: {
     duration: 8,
@@ -229,6 +242,15 @@ export const CONFIG = Object.freeze({
       sentinel: { structureDamage: 1.28, holdLineStructureDamage: 1.12, closeTowerDamageTaken: 0.76 },
       closeRange: 170,
       closeRangeTowerMitigation: 0.9
+    },
+    stealth: {
+      defaultUntargetableKinds: ["mob", "tower", "objective", "ai", "neutralTower", "player", "remotePlayer"]
+    },
+    melee: {
+      defaultConeAngle: 1.72,
+      defaultCloseRadius: 52,
+      rangePerAbilityLevel: 10,
+      radiusPerAbilityLevel: 3
     },
     towerProjectiles: {
       baseSpeed: 610,
@@ -848,7 +870,6 @@ export const HERO_CLASSES = Object.freeze({
       "Prototype hero. Future classes can swap stats, ability definitions, build discounts, scouting ranges, and PvP reward modifiers."
   }
 });
-
 
 
 

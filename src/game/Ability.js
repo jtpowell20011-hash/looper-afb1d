@@ -1,7 +1,7 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.59";
-import { getCharacterClass } from "./CharacterClasses.js?v=1.8.59";
-import { clamp, normalize } from "./math.js?v=1.8.59";
+import { CONFIG } from "./config.js?v=1.8.60";
+import { getCharacterClass } from "./CharacterClasses.js?v=1.8.60";
+import { clamp, normalize } from "./math.js?v=1.8.60";
 
 export class Ability {
   constructor(config) {
@@ -28,6 +28,9 @@ export class Ability {
     if (!Number.isFinite(this.config.range)) {
       return 0;
     }
+    if (this.config.type === "melee") {
+      return this.config.range + (this.level - 1) * (this.config.rangePerAbilityLevel ?? CONFIG.combat?.melee?.rangePerAbilityLevel ?? 10);
+    }
     if (["area", "repairField", "meteor"].includes(this.config.type)) {
       return this.config.range + (this.level - 1) * 24;
     }
@@ -40,6 +43,9 @@ export class Ability {
   get effectRadius() {
     if (!Number.isFinite(this.config.radius)) {
       return 0;
+    }
+    if (this.config.type === "melee") {
+      return this.config.radius + (this.level - 1) * (this.config.radiusPerAbilityLevel ?? CONFIG.combat?.melee?.radiusPerAbilityLevel ?? 3);
     }
     if (["area", "repairField", "meteor", "selfArea"].includes(this.config.type)) {
       return this.config.radius + (this.level - 1) * 12;
@@ -354,6 +360,9 @@ export class AbilityBook {
     caster.stealthTimer = Math.max(caster.stealthTimer || 0, duration);
     caster.stealthMaxTimer = Math.max(caster.stealthMaxTimer || 0, duration);
     caster.stealthUntargetable = true;
+    caster.stealthUntargetableKinds = [
+      ...(ability.config.untargetableKinds || CONFIG.combat?.stealth?.defaultUntargetableKinds || [])
+    ];
     caster.stealthBreakOnDamageAction = ability.config.breakOnDamageAction !== false;
     caster.stealthDamageBonus = 1.45 + ability.level * 0.08;
     scene.addFloatingText?.(caster.x, caster.y - 42, "Vanish", ability.config.color);
@@ -403,13 +412,20 @@ export class AbilityBook {
     caster.markCast?.(direction);
     ability.trigger();
     const stealthMultiplier = this.consumeStealthMultiplier(caster, ability);
+    const coneLength = Math.max(50, ability.range);
     const center = {
-      x: caster.x + direction.x * Math.max(34, ability.range * 0.55),
-      y: caster.y + direction.y * Math.max(34, ability.range * 0.55)
+      x: caster.x + direction.x * coneLength * 0.52,
+      y: caster.y + direction.y * coneLength * 0.52
     };
     scene.spawnAreaEffect({
+      shape: "cone",
       x: center.x,
       y: center.y,
+      dirX: direction.x,
+      dirY: direction.y,
+      length: coneLength,
+      coneAngle: ability.config.coneAngle ?? CONFIG.combat?.melee?.defaultConeAngle ?? 1.72,
+      closeRadius: ability.config.closeRadius ?? CONFIG.combat?.melee?.defaultCloseRadius ?? 52,
       radius: ability.effectRadius,
       damage: this.scaledDamage(ability, caster, stealthMultiplier),
       duration: 0.12,

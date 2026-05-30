@@ -1,5 +1,5 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.59";
+import { CONFIG } from "./config.js?v=1.8.60";
 
 const SCALE = 1 / 80;
 const TILE_WORLD_SIZE = 120;
@@ -570,7 +570,7 @@ export class LowPolyRenderer {
       }
     }
     for (const remote of game.remotePlayers?.values?.() || []) {
-      if (this.shouldRenderLiveEntity(game, remote, 90)) {
+      if (!game.isEntityStealthed?.(remote) && this.shouldRenderLiveEntity(game, remote, 90)) {
         this.syncCharacter(remote.id, remote, remote.characterId || "ranger", liveIds, false);
       }
     }
@@ -1716,7 +1716,7 @@ export class LowPolyRenderer {
       const effect = game.areaEffects[index];
       const id = `area-effect-${index}`;
       const color = cssToHex(effect.color || "#f0c85d");
-      const key = `${effect.shape || "circle"}-${color}`;
+      const key = `${effect.shape || "circle"}-${color}-${effect.shape === "cone" ? Math.round((effect.coneAngle || 0) * 100) : ""}`;
       liveIds.add(id);
       let view = this.helperViews.get(id);
       if (!view || view.userData.previewKey !== key) {
@@ -1738,6 +1738,13 @@ export class LowPolyRenderer {
         this.setObjectPosition(view, x, y, 0.07);
         view.rotation.y = rotationForWorldVector(effect.x2 - effect.x1, effect.y2 - effect.y1);
         view.scale.set(Math.max(0.4, length), 1, Math.max(0.12, (effect.width || 52) * SCALE));
+      } else if (effect.shape === "cone") {
+        const originX = Number.isFinite(effect.sourceX) ? effect.sourceX : effect.x;
+        const originY = Number.isFinite(effect.sourceY) ? effect.sourceY : effect.y;
+        this.setObjectPosition(view, originX, originY, 0.08);
+        view.rotation.y = rotationForWorldVector(effect.dirX || 0, effect.dirY || 1);
+        const length = (effect.length || effect.radius || 90) * SCALE;
+        view.scale.set(Math.max(0.25, length), 1, Math.max(0.25, length));
       } else {
         this.setObjectPosition(view, effect.x, effect.y, 0.07);
         const radius = (effect.radius || 120) * SCALE;
@@ -1791,6 +1798,12 @@ export class LowPolyRenderer {
   buildAreaEffectView(effect, color) {
     if (effect.shape === "wall") {
       return new this.THREE.Mesh(new this.THREE.BoxGeometry(1, 0.035, 1), this.helperMat(color, 0.42));
+    }
+    if (effect.shape === "cone") {
+      const angle = effect.coneAngle || CONFIG.combat?.melee?.defaultConeAngle || 1.72;
+      const geom = new this.THREE.CircleGeometry(1, 24, -angle * 0.5, angle);
+      geom.rotateX(-Math.PI / 2);
+      return new this.THREE.Mesh(geom, this.helperMat(color, 0.34));
     }
     return new this.THREE.Mesh(new this.THREE.CylinderGeometry(1, 1, 0.035, 32), this.helperMat(color, 0.3));
   }
@@ -2029,6 +2042,4 @@ function disposeObject(object) {
     }
   });
 }
-
-
 

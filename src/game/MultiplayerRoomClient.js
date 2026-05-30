@@ -1,4 +1,5 @@
 // @ts-check
+import { CONFIG } from "./config.js?v=1.8.60";
 
 const ROOM_PREFIX = "basebound.room.";
 const ROOM_TTL_MS = 1000 * 60 * 45;
@@ -130,9 +131,9 @@ export class MultiplayerRoomClient {
     }
 
     const shouldSend = this.sendTimer <= 0 || hasQueuedEvents;
-    const queuedEvents = this.outgoingEvents.splice(0, 32);
-    this.sendTimer = shouldSend ? 0.1 : this.sendTimer;
-    this.pollTimer = this.pollTimer <= 0 ? 0.45 : this.pollTimer;
+    const queuedEvents = this.outgoingEvents.splice(0, CONFIG.multiplayer?.maxEventsPerSync || 24);
+    this.sendTimer = shouldSend ? (CONFIG.multiplayer?.playerSyncIntervalMs || 125) / 1000 : this.sendTimer;
+    this.pollTimer = this.pollTimer <= 0 ? (CONFIG.multiplayer?.pollIntervalMs || 650) / 1000 : this.pollTimer;
     this.busy = true;
     const state = shouldSend || queuedEvents.length > 0 ? scene.snapshotForMultiplayer() : null;
     const task = state
@@ -503,7 +504,6 @@ function normalizeRoomCode(code) {
 function getOrCreatePlayerId() {
   return `player-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
-
 
 
 

@@ -1,19 +1,19 @@
 // @ts-check
-import { BaseController } from "./Base.js?v=1.8.59";
-import { AIPlayerController } from "./AIPlayer.js?v=1.8.59";
-import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.59";
-import { CONFIG } from "./config.js?v=1.8.59";
-import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.59";
-import { GameMap } from "./Map.js?v=1.8.59";
-import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.59";
-import { MatchManager } from "./MatchManager.js?v=1.8.59";
-import { Mob } from "./Mob.js?v=1.8.59";
-import { createObjectives } from "./Objective.js?v=1.8.59";
-import { Player } from "./Player.js?v=1.8.59";
-import { RewardSystem } from "./RewardSystem.js?v=1.8.59";
-import { UIManager } from "./UIManager.js?v=1.8.59";
-import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.59";
-import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.59";
+import { BaseController } from "./Base.js?v=1.8.60";
+import { AIPlayerController } from "./AIPlayer.js?v=1.8.60";
+import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.60";
+import { CONFIG } from "./config.js?v=1.8.60";
+import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.60";
+import { GameMap } from "./Map.js?v=1.8.60";
+import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.60";
+import { MatchManager } from "./MatchManager.js?v=1.8.60";
+import { Mob } from "./Mob.js?v=1.8.60";
+import { createObjectives } from "./Objective.js?v=1.8.60";
+import { Player } from "./Player.js?v=1.8.60";
+import { RewardSystem } from "./RewardSystem.js?v=1.8.60";
+import { UIManager } from "./UIManager.js?v=1.8.60";
+import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.60";
+import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.60";
 
 export class GameScene {
   constructor(canvas, options = {}) {
@@ -1418,6 +1418,10 @@ export class GameScene {
         eliminated: Boolean(this.player.eliminated),
         spectating: Boolean(this.spectating),
         respawnTimer: this.player.respawnTimer,
+        stealthTimer: Math.round((this.player.stealthTimer || 0) * 100) / 100,
+        stealthMaxTimer: Math.round((this.player.stealthMaxTimer || 0) * 100) / 100,
+        stealthUntargetable: Boolean(this.player.stealthUntargetable && (this.player.stealthTimer || 0) > 0),
+        stealthUntargetableKinds: this.player.stealthUntargetableKinds || [],
         radius: this.player.radius,
         fx: this.player.facing ? Math.round((this.player.facing.x || 0) * 100) / 100 : 0,
         fy: this.player.facing ? Math.round((this.player.facing.y || 1) * 100) / 100 : 1
@@ -1472,15 +1476,19 @@ export class GameScene {
   }
 
   createWorldSnapshot() {
-    const maxMobs = CONFIG.multiplayer?.maxSyncedMobs || 360;
-    const radius = CONFIG.multiplayer?.syncMobRadius || 1700;
+    const anchors = [this.player, ...this.remotePlayers.values()].filter(
+      (point) => point && Number.isFinite(point.x) && Number.isFinite(point.y)
+    );
+    const sizeCap = CONFIG.multiplayer?.maxSyncedMobsByMapSize?.[this.mapSizeId] ?? CONFIG.multiplayer?.maxSyncedMobs ?? 280;
+    const maxMobs = Math.min(
+      CONFIG.multiplayer?.maxSyncedMobs || 280,
+      Math.round(sizeCap + Math.max(0, anchors.length - 1) * 14)
+    );
+    const radius = CONFIG.multiplayer?.syncMobRadiusByMapSize?.[this.mapSizeId] ?? CONFIG.multiplayer?.syncMobRadius ?? 1550;
     const radiusSq = radius * radius;
     // Stream mobs near ANY player (host + remotes) so each client gets its own
     // nearby mobs; bosses always sync. Sort by proximity so the cap keeps the
     // most relevant ones.
-    const anchors = [this.player, ...this.remotePlayers.values()].filter(
-      (point) => point && Number.isFinite(point.x) && Number.isFinite(point.y)
-    );
     const nearestDistSq = (mob) => {
       let best = Infinity;
       for (const anchor of anchors) {
@@ -1562,6 +1570,12 @@ export class GameScene {
       proxy.alive = snap.alive !== false;
       proxy.eliminated = Boolean(snap.eliminated);
       proxy.spectating = Boolean(snap.spectating);
+      proxy.stealthTimer = Math.max(0, snap.stealthTimer || 0);
+      proxy.stealthMaxTimer = Math.max(0, snap.stealthMaxTimer || proxy.stealthTimer || 0);
+      proxy.stealthUntargetable = Boolean(snap.stealthUntargetable && proxy.stealthTimer > 0);
+      proxy.stealthUntargetableKinds = Array.isArray(snap.stealthUntargetableKinds)
+        ? snap.stealthUntargetableKinds
+        : CONFIG.combat?.stealth?.defaultUntargetableKinds || [];
       proxy.health = snap.health;
       proxy.maxHealth = snap.maxHealth;
       proxy.healthRatio = snap.healthRatio ?? 1;
@@ -2030,7 +2044,18 @@ export class GameScene {
     if (!this.isEntityStealthed(target)) {
       return true;
     }
-    return !["mob", "tower", "objective", "ai", "neutralTower"].includes(sourceKind);
+    return !this.stealthBlocksSourceKind(target, sourceKind);
+  }
+
+  stealthBlocksSourceKind(target, sourceKind = "mob") {
+    if (!this.isEntityStealthed(target)) {
+      return false;
+    }
+    const blockedKinds =
+      target.stealthUntargetableKinds?.length > 0
+        ? target.stealthUntargetableKinds
+        : CONFIG.combat?.stealth?.defaultUntargetableKinds || ["mob", "tower", "objective", "ai", "neutralTower", "player", "remotePlayer"];
+    return blockedKinds.includes("*") || blockedKinds.includes(sourceKind);
   }
 
   updateClassPassives() {
@@ -2204,7 +2229,7 @@ export class GameScene {
         }
         if (projectile.alive) {
           for (const remote of this.remotePlayers.values()) {
-            if (!remote.alive || projectile.hitIds.has(remote.id) || !circleIntersects(projectile, remote)) {
+            if (!this.canTargetEntity(remote, "player") || projectile.hitIds.has(remote.id) || !circleIntersects(projectile, remote)) {
               continue;
             }
             projectile.hitIds.add(remote.id);
@@ -2700,6 +2725,11 @@ export class GameScene {
         candidates.push(ai.player);
       }
     }
+    for (const remote of this.remotePlayers?.values?.() || []) {
+      if (this.canTargetEntity(remote, "neutralTower") && distance(remote, tower) <= range) {
+        candidates.push(remote);
+      }
+    }
     candidates.sort((a, b) => distanceSq(a, tower) - distanceSq(b, tower));
     return candidates[0] || null;
   }
@@ -3029,6 +3059,11 @@ export class GameScene {
       y1: Math.round(effect.y1 || 0),
       x2: Math.round(effect.x2 || 0),
       y2: Math.round(effect.y2 || 0),
+      dirX: Math.round((effect.dirX || 0) * 100) / 100,
+      dirY: Math.round((effect.dirY || 0) * 100) / 100,
+      length: Math.round(effect.length || 0),
+      coneAngle: Math.round((effect.coneAngle || 0) * 100) / 100,
+      closeRadius: Math.round(effect.closeRadius || 0),
       width: Math.round(effect.width || 0),
       color: effect.color || "#b391f0",
       duration: Math.round((effect.duration || 1) * 100) / 100,
@@ -3048,6 +3083,11 @@ export class GameScene {
       y1: event.y1,
       x2: event.x2,
       y2: event.y2,
+      dirX: event.dirX,
+      dirY: event.dirY,
+      length: event.length,
+      coneAngle: event.coneAngle,
+      closeRadius: event.closeRadius,
       width: event.width,
       color: event.color || "#b391f0",
       type: event.effectType || undefined,
@@ -3127,13 +3167,13 @@ export class GameScene {
     }
     if (nextEffect.team === "player") {
       for (const ai of this.aiPlayers || []) {
-        if (ai.player.alive && this.effectContainsTarget(nextEffect, ai.player)) {
+        if (this.canTargetEntity(ai.player, "player") && this.effectContainsTarget(nextEffect, ai.player)) {
           nextEffect.hitIds.add(ai.player.id);
           this.applyDamage(ai.player, nextEffect.damage, source);
         }
       }
       for (const remote of this.remotePlayers.values()) {
-        if (remote.alive && this.effectContainsTarget(nextEffect, remote)) {
+        if (this.canTargetEntity(remote, "player") && this.effectContainsTarget(nextEffect, remote)) {
           nextEffect.hitIds.add(remote.id);
           this.applyDamage(remote, nextEffect.damage, source);
         }
@@ -3161,7 +3201,7 @@ export class GameScene {
         }
       }
     } else if (nextEffect.team === "ai") {
-      if (this.player.alive && this.effectContainsTarget(nextEffect, this.player)) {
+      if (this.canTargetEntity(this.player, "ai") && this.effectContainsTarget(nextEffect, this.player)) {
         this.applyDamage(this.player, nextEffect.damage, source);
       }
       for (const building of this.base.livingBuildings) {
@@ -3192,6 +3232,30 @@ export class GameScene {
     if (effect.shape === "wall") {
       const width = effect.width || effect.radius * 2 || 48;
       return pointLineDistance(target, { x: effect.x1, y: effect.y1 }, { x: effect.x2, y: effect.y2 }) <= width * 0.5 + (target.radius || 18);
+    }
+    if (effect.shape === "cone") {
+      const origin = {
+        x: Number.isFinite(effect.sourceX) ? effect.sourceX : effect.x,
+        y: Number.isFinite(effect.sourceY) ? effect.sourceY : effect.y
+      };
+      const direction = normalize(effect.dirX || effect.x - origin.x, effect.dirY || effect.y - origin.y);
+      const dx = (target.x || 0) - origin.x;
+      const dy = (target.y || 0) - origin.y;
+      const targetRadius = this.getTargetRadius?.(target) || target.radius || 18;
+      const length = effect.length || effect.radius || 90;
+      const targetDistance = Math.hypot(dx, dy);
+      if (targetDistance <= (effect.closeRadius || CONFIG.combat?.melee?.defaultCloseRadius || 52) + targetRadius) {
+        return true;
+      }
+      if (targetDistance > length + targetRadius) {
+        return false;
+      }
+      const nx = dx / Math.max(1, targetDistance);
+      const ny = dy / Math.max(1, targetDistance);
+      const dot = nx * direction.x + ny * direction.y;
+      const halfAngle = (effect.coneAngle || CONFIG.combat?.melee?.defaultConeAngle || 1.72) * 0.5;
+      const radiusGrace = Math.min(0.22, targetRadius / Math.max(1, targetDistance));
+      return dot >= Math.cos(halfAngle) - radiusGrace;
     }
     return distance(effect, target) <= effect.radius + (target.radius || 18);
   }
@@ -3449,10 +3513,10 @@ export class GameScene {
       }
     } else {
       for (const ai of this.aiPlayers || []) {
-        if (ai.player.alive) targets.push(ai.player);
+        if (this.canTargetEntity(ai.player, "player")) targets.push(ai.player);
         targets.push(...ai.base.livingBuildings);
       }
-      targets.push(...Array.from(this.remotePlayers.values()).filter((remote) => remote.alive));
+      targets.push(...Array.from(this.remotePlayers.values()).filter((remote) => this.canTargetEntity(remote, "player")));
       targets.push(...this.getRemoteBaseBuildings());
     }
     return targets.filter((target) => target?.alive !== false);
@@ -3463,7 +3527,8 @@ export class GameScene {
       return;
     }
 
-    if ((target.stealthTimer || 0) > 0 && ["mob", "tower", "objective", "ai", "neutralTower"].includes(source.sourceKind)) {
+    const sourceOwnerId = source.sourceOwnerId || source.sourceId;
+    if (this.stealthBlocksSourceKind(target, source.sourceKind) && sourceOwnerId !== target.id) {
       return;
     }
 
@@ -5800,6 +5865,23 @@ export class GameScene {
         ctx.strokeStyle = "rgba(255,248,232,0.72)";
         ctx.lineWidth = 3;
         ctx.stroke();
+      } else if (effect.shape === "cone") {
+        const originX = Number.isFinite(effect.sourceX) ? effect.sourceX : effect.x;
+        const originY = Number.isFinite(effect.sourceY) ? effect.sourceY : effect.y;
+        const angle = Math.atan2(effect.dirY || 1, effect.dirX || 0);
+        const halfAngle = (effect.coneAngle || CONFIG.combat?.melee?.defaultConeAngle || 1.72) * 0.5;
+        const length = effect.length || effect.radius || 90;
+        ctx.beginPath();
+        ctx.moveTo(originX, originY);
+        ctx.arc(originX, originY, length, angle - halfAngle, angle + halfAngle);
+        ctx.closePath();
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.globalAlpha *= 0.72;
+        ctx.beginPath();
+        ctx.arc(originX, originY, effect.closeRadius || CONFIG.combat?.melee?.defaultCloseRadius || 52, 0, Math.PI * 2);
+        ctx.stroke();
       } else {
         ctx.beginPath();
         ctx.arc(effect.x, effect.y, effect.radius, 0, Math.PI * 2);
@@ -5975,7 +6057,7 @@ export class GameScene {
 
   drawRemotePlayers(ctx) {
     for (const remote of this.remotePlayers.values()) {
-      if (!remote?.alive || !this.isPointCurrentlyVisible(remote, 90)) {
+      if (!remote?.alive || this.isEntityStealthed(remote) || !this.isPointCurrentlyVisible(remote, 90)) {
         continue;
       }
       ctx.save();
@@ -6480,7 +6562,7 @@ export class GameScene {
 
     for (const remote of this.remotePlayers.values()) {
       // Only reveal rival players on the minimap when they are inside vision.
-      if (!remote.alive || !this.isPointCurrentlyVisible(remote, 0)) {
+      if (!remote.alive || this.isEntityStealthed(remote) || !this.isPointCurrentlyVisible(remote, 0)) {
         continue;
       }
       ctx.fillStyle = "#ffb26a";

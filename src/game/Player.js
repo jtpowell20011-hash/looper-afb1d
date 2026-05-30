@@ -1,9 +1,9 @@
 // @ts-check
-import { AbilityBook } from "./Ability.js?v=1.8.59";
-import { getCharacterClass } from "./CharacterClasses.js?v=1.8.59";
-import { CONFIG } from "./config.js?v=1.8.59";
-import { Entity } from "./Entity.js?v=1.8.59";
-import { clamp, normalize } from "./math.js?v=1.8.59";
+import { AbilityBook } from "./Ability.js?v=1.8.60";
+import { getCharacterClass } from "./CharacterClasses.js?v=1.8.60";
+import { CONFIG } from "./config.js?v=1.8.60";
+import { Entity } from "./Entity.js?v=1.8.60";
+import { clamp, normalize } from "./math.js?v=1.8.60";
 
 export class Player extends Entity {
   constructor(x, y, characterId = "ranger") {
@@ -66,6 +66,7 @@ export class Player extends Entity {
     this.stealthDamageBonus = 1;
     this.stealthMaxTimer = 0;
     this.stealthUntargetable = false;
+    this.stealthUntargetableKinds = [];
     this.stealthBreakOnDamageAction = true;
     this.shield = 0;
     this.maxShield = 0;
@@ -626,6 +627,7 @@ export class Player extends Entity {
     this.stealthMaxTimer = 0;
     this.stealthDamageBonus = 1;
     this.stealthUntargetable = false;
+    this.stealthUntargetableKinds = [];
     this.stealthBreakOnDamageAction = true;
   }
 
