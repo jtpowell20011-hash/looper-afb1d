@@ -1,7 +1,7 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.60";
-import { distance } from "./math.js?v=1.8.60";
-import { DamageTracker } from "./RewardSystem.js?v=1.8.60";
+import { CONFIG } from "./config.js?v=1.8.61";
+import { distance } from "./math.js?v=1.8.61";
+import { DamageTracker } from "./RewardSystem.js?v=1.8.61";
 
 export class Objective {
   constructor(config) {
@@ -167,7 +167,10 @@ export class Objective {
     const step = Math.min((rules.returnSpeed || 300) * dt, length);
     this.guardianX += (dx / length) * step;
     this.guardianY += (dy / length) * step;
-    if (this.health < this.maxHealth) {
+    this.combatTimer = Math.max(0, (this.combatTimer || 0) - dt);
+    // Suppress disengage-healing while recently damaged so an objective boss does
+    // not "heal back up" between a player's hits.
+    if (this.health < this.maxHealth && (this.combatTimer || 0) <= 0) {
       this.health = Math.min(this.maxHealth, this.health + this.maxHealth * (rules.healingPercentPerSecond || 0.08) * dt);
     }
     if (length <= (rules.resetDistance || 42) && rules.fullResetAtHome) {

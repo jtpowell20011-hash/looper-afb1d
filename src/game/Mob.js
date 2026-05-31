@@ -1,8 +1,8 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.60";
-import { Entity } from "./Entity.js?v=1.8.60";
-import { clamp, distance, normalize, randRange } from "./math.js?v=1.8.60";
-import { DamageTracker } from "./RewardSystem.js?v=1.8.60";
+import { CONFIG } from "./config.js?v=1.8.61";
+import { Entity } from "./Entity.js?v=1.8.61";
+import { clamp, distance, normalize, randRange } from "./math.js?v=1.8.61";
+import { DamageTracker } from "./RewardSystem.js?v=1.8.61";
 
 export class Mob extends Entity {
   constructor({
@@ -88,6 +88,7 @@ export class Mob extends Entity {
     this.attackTimer = Math.max(0, this.attackTimer - dt);
     this.castTimer = Math.max(0, this.castTimer - dt);
     this.summonTimer = Math.max(0, this.summonTimer - dt);
+    this.combatTimer = Math.max(0, (this.combatTimer || 0) - dt);
     this.scaleToWorldLevel(scene.getAveragePlayerLevel?.() || 1);
     if (this.stunTimer > 0) {
       return;
@@ -111,7 +112,10 @@ export class Mob extends Entity {
     if (distance(this, home) > 20) {
       this.moveToward(home, dt, 0.55, scene);
     }
-    if (this.isBoss && this.health < this.maxHealth) {
+    // Only leash-heal once the boss has truly disengaged: no valid target AND no
+    // damage taken recently (combatTimer). Prevents "heals back up" while players
+    // are actively fighting it but momentarily out of the mob's target frame.
+    if (this.isBoss && this.health < this.maxHealth && (this.combatTimer || 0) <= 0) {
       const rules = CONFIG.objectiveRules?.leash || {};
       this.health = Math.min(this.maxHealth, this.health + this.maxHealth * (rules.healingPercentPerSecond || 0.08) * dt);
       if (scene?.addFloatingText && Math.random() < dt * 0.12) {

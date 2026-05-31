@@ -1,9 +1,9 @@
 // @ts-check
-import { AbilityBook } from "./Ability.js?v=1.8.60";
-import { getCharacterClass } from "./CharacterClasses.js?v=1.8.60";
-import { CONFIG } from "./config.js?v=1.8.60";
-import { Entity } from "./Entity.js?v=1.8.60";
-import { clamp, normalize } from "./math.js?v=1.8.60";
+import { AbilityBook } from "./Ability.js?v=1.8.61";
+import { getCharacterClass } from "./CharacterClasses.js?v=1.8.61";
+import { CONFIG } from "./config.js?v=1.8.61";
+import { Entity } from "./Entity.js?v=1.8.61";
+import { clamp, normalize } from "./math.js?v=1.8.61";
 
 export class Player extends Entity {
   constructor(x, y, characterId = "ranger") {
@@ -149,7 +149,7 @@ export class Player extends Entity {
     const speed = Math.max(
       165,
       this.speed +
-        this.attributes.mobility * 9 +
+        this.attributes.mobility * (CONFIG.player?.mobilityMoveSpeedPerPoint ?? 18) +
         this.statBonuses.speed +
         (this.baseLayoutBonus.speed || 0) +
         (this.passiveSpeedBonus || 0) +

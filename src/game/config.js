@@ -48,6 +48,9 @@ export const CONFIG = Object.freeze({
     radius: 18,
     maxHealth: 140,
     moveSpeed: 252,
+    // Move-speed added per point invested in the mobility attribute. Tuned so each
+    // point is clearly noticeable (~7% of base) but still balanced.
+    mobilityMoveSpeedPerPoint: 18,
     acceleration: 2050,
     friction: 9.5,
     statTuning: {
@@ -797,6 +800,7 @@ export const CONFIG = Object.freeze({
       engagePadding: 92,
       returnSpeed: 310,
       healingPercentPerSecond: 0.08,
+      combatMemorySeconds: 5,
       resetDistance: 42,
       fullResetAtHome: false,
       arenaDamagePadding: 0,

@@ -1,19 +1,43 @@
 // @ts-check
-import { BaseController } from "./Base.js?v=1.8.60";
-import { AIPlayerController } from "./AIPlayer.js?v=1.8.60";
-import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.60";
-import { CONFIG } from "./config.js?v=1.8.60";
-import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.60";
-import { GameMap } from "./Map.js?v=1.8.60";
-import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.60";
-import { MatchManager } from "./MatchManager.js?v=1.8.60";
-import { Mob } from "./Mob.js?v=1.8.60";
-import { createObjectives } from "./Objective.js?v=1.8.60";
-import { Player } from "./Player.js?v=1.8.60";
-import { RewardSystem } from "./RewardSystem.js?v=1.8.60";
-import { UIManager } from "./UIManager.js?v=1.8.60";
-import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.60";
-import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.60";
+import { BaseController } from "./Base.js?v=1.8.61";
+import { AIPlayerController } from "./AIPlayer.js?v=1.8.61";
+import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.61";
+import { CONFIG } from "./config.js?v=1.8.61";
+import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.61";
+import { GameMap } from "./Map.js?v=1.8.61";
+import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.61";
+import { MatchManager } from "./MatchManager.js?v=1.8.61";
+import { Mob } from "./Mob.js?v=1.8.61";
+import { createObjectives } from "./Objective.js?v=1.8.61";
+import { Player } from "./Player.js?v=1.8.61";
+import { RewardSystem } from "./RewardSystem.js?v=1.8.61";
+import { UIManager } from "./UIManager.js?v=1.8.61";
+import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.61";
+import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.61";
+
+// `healthRatio` is a derived getter on real entities (Entity/Mob/Player/Objective),
+// so assigning to it throws "Cannot set property healthRatio ... which has only a
+// getter" and pauses room sync. Network proxies, by contrast, are plain objects that
+// DO store healthRatio. This helper writes the value only when it is safe (plain
+// carriers); entities keep deriving it from health/maxHealth. Preferred sync model:
+// replicate raw health + maxHealth and compute the ratio locally for health bars.
+function setSyncedHealthRatio(target, ratio) {
+  if (!target) {
+    return;
+  }
+  let obj = target;
+  while (obj && obj !== Object.prototype) {
+    const desc = Object.getOwnPropertyDescriptor(obj, "healthRatio");
+    if (desc) {
+      if (desc.get && !desc.set) {
+        return; // derived getter — value comes from health/maxHealth
+      }
+      break;
+    }
+    obj = Object.getPrototypeOf(obj);
+  }
+  target.healthRatio = ratio;
+}
 
 export class GameScene {
   constructor(canvas, options = {}) {
@@ -185,6 +209,9 @@ export class GameScene {
     };
     this.phaseWarningIndex = null;
     this.showDebugOverlay = false;
+    // Optional mob-damage debug logging (source player, ability, amount, before/
+    // after health). Toggle at runtime via the console: `game.debugMobDamage = true`.
+    this.debugMobDamage = false;
     this.performanceStats = {
       fps: 0,
       mobs: 0,
@@ -1159,7 +1186,9 @@ export class GameScene {
       return;
     }
 
-    const matchEvent = this.match.update(dt);
+    // The host owns match phase/timer authority; non-hosts only count the timer
+    // down locally for smooth display and adopt the host's phase from snapshots.
+    const matchEvent = this.isAuthoritativeWorldHost() ? this.match.update(dt) : this.match.tickDisplay(dt);
     if (matchEvent === "phase_changed") {
       this.phaseWarningIndex = null;
       this.addToast(`${this.match.currentPhase.label}: ${this.match.currentPhase.description}`);
@@ -1507,6 +1536,11 @@ export class GameScene {
       mapSize: this.mapSizeId,
       bossSpawned: Boolean(this.bossSpawned),
       bossDefeated: Boolean(this.bossDefeated),
+      match: {
+        phaseIndex: this.match.phaseIndex,
+        timeRemaining: Math.max(0, this.match.timeRemaining),
+        matchWon: Boolean(this.match.matchWon)
+      },
       openedChests: (this.explorationChests || []).filter((chest) => chest.opened).map((chest) => chest.id),
       mobs: this.mobs
         .filter((mob) => mob.alive && !mob.rewardsGranted)
@@ -1578,7 +1612,7 @@ export class GameScene {
         : CONFIG.combat?.stealth?.defaultUntargetableKinds || [];
       proxy.health = snap.health;
       proxy.maxHealth = snap.maxHealth;
-      proxy.healthRatio = snap.healthRatio ?? 1;
+      setSyncedHealthRatio(proxy, snap.healthRatio ?? 1);
       proxy.respawnTimer = snap.respawnTimer || 0;
       proxy.radius = snap.radius || proxy.radius || 22;
       if (Number.isFinite(snap.fx) || Number.isFinite(snap.fy)) {
@@ -1651,6 +1685,20 @@ export class GameScene {
     }
     this.bossSpawned = Boolean(world.bossSpawned);
     this.bossDefeated = Boolean(world.bossDefeated);
+    if (world.match) {
+      // Adopt the host's authoritative phase/timer so everyone sees the same one.
+      const phaseEvent = this.match.applyAuthoritativeState(world.match);
+      if (phaseEvent === "phase_changed") {
+        this.phaseWarningIndex = null;
+        this.addToast(`${this.match.currentPhase.label}: ${this.match.currentPhase.description}`);
+        if (this.areRivalBasesRevealed()) {
+          this.addToast("Rival base cores are now marked on the minimap.");
+        }
+      }
+      if (world.match.matchWon && !this.gameWon && !this.gameOver) {
+        this.win("The match has ended.");
+      }
+    }
     const openedChests = new Set(world.openedChests || []);
     for (const chest of this.explorationChests || []) {
       if (openedChests.has(chest.id)) {
@@ -1735,7 +1783,7 @@ export class GameScene {
     deployable.range = snapshot.range || deployable.range || 120;
     deployable.maxHealth = Math.max(1, snapshot.maxHealth || deployable.maxHealth || 1);
     deployable.health = Math.max(0, Math.min(deployable.maxHealth, snapshot.health ?? deployable.health ?? deployable.maxHealth));
-    deployable.healthRatio = snapshot.healthRatio ?? deployable.health / Math.max(1, deployable.maxHealth);
+    setSyncedHealthRatio(deployable, snapshot.healthRatio ?? deployable.health / Math.max(1, deployable.maxHealth));
     deployable.life = snapshot.life || 0;
     deployable.maxLife = snapshot.maxLife || 0;
     deployable.color = snapshot.color || deployable.color || "#ff8068";
@@ -1743,10 +1791,10 @@ export class GameScene {
     deployable.takeDamage = function takeRemoteDeployableDamage(amount) {
       const applied = Math.min(this.health, Math.max(0, amount));
       this.health -= applied;
-      this.healthRatio = this.health / Math.max(1, this.maxHealth);
+      setSyncedHealthRatio(this, this.health / Math.max(1, this.maxHealth));
       if (this.health <= 0) {
         this.health = 0;
-        this.healthRatio = 0;
+        setSyncedHealthRatio(this, 0);
         this.alive = false;
       }
       return applied;
@@ -1806,7 +1854,7 @@ export class GameScene {
       const maxHealth = Math.max(1, target.maxHealth || 100);
       const currentHealth = Number.isFinite(target.health) ? target.health : maxHealth * (target.healthRatio ?? 1);
       target.health = Math.max(0, currentHealth - amount);
-      target.healthRatio = target.health / maxHealth;
+      setSyncedHealthRatio(target, target.health / maxHealth);
       target.alive = target.health > 0;
       return;
     }
@@ -1814,22 +1862,22 @@ export class GameScene {
       const maxHealth = Math.max(1, target.maxHealth || 120);
       const currentHealth = Number.isFinite(target.health) ? target.health : maxHealth * (target.healthRatio ?? 1);
       target.health = Math.max(0, currentHealth - amount);
-      target.healthRatio = target.health / maxHealth;
+      setSyncedHealthRatio(target, target.health / maxHealth);
       target.alive = target.health > 0;
       return;
     }
     if (target.isRemoteMob) {
-      const maxHealth = Math.max(1, target.maxHealth || 80);
-      const currentHealth = Number.isFinite(target.health) ? target.health : maxHealth * (target.healthRatio ?? 1);
-      target.health = Math.max(0, currentHealth - amount);
-      target.alive = target.health > 0;
+      // Mob health is host-authoritative. Do NOT predict it locally: a stale
+      // host snapshot would then bump it back up and look like the mob "healed".
+      // The floating damage number is shown by the caller; the real health drop
+      // arrives with the next world snapshot from the host.
       return;
     }
     if (target.isRemoteDeployable) {
       const maxHealth = Math.max(1, target.maxHealth || 80);
       const currentHealth = Number.isFinite(target.health) ? target.health : maxHealth * (target.healthRatio ?? 1);
       target.health = Math.max(0, currentHealth - amount);
-      target.healthRatio = target.health / maxHealth;
+      setSyncedHealthRatio(target, target.health / maxHealth);
       target.alive = target.health > 0;
     }
   }
@@ -3594,6 +3642,16 @@ export class GameScene {
             : "damage";
       this.addDamageNumber(target, applied, damageKind, source);
       this.applyCombatStatus(target, source.status, source);
+      if (target instanceof Mob || this.objectives.includes(target)) {
+        // Mark the mob/objective guardian as "in combat" so leash regen is
+        // suppressed briefly (prevents "healing back up" while being fought).
+        target.combatTimer = CONFIG.objectiveRules?.leash?.combatMemorySeconds ?? 5;
+        if (this.debugMobDamage) {
+          console.info(
+            `[mob-damage] mob=${target.id} src=${source.sourceOwnerId || source.sourceId || "?"} kind=${source.sourceKind || "?"} dmg=${applied} hp=${Math.ceil(target.health)}/${Math.ceil(target.maxHealth)} alive=${target.alive}`
+          );
+        }
+      }
     }
     if (target === this.player && applied > 0) {
       this.cancelRecall("Recall interrupted by damage.");

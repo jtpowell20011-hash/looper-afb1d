@@ -1,7 +1,7 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.60";
-import { labelForKeyCode } from "./InputBindings.js?v=1.8.60";
-import { formatTime } from "./math.js?v=1.8.60";
+import { CONFIG } from "./config.js?v=1.8.61";
+import { labelForKeyCode } from "./InputBindings.js?v=1.8.61";
+import { formatTime } from "./math.js?v=1.8.61";
 
 export class UIManager {
   constructor(callbacks) {
