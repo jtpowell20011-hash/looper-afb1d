@@ -1,7 +1,7 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.61";
-import { labelForKeyCode } from "./InputBindings.js?v=1.8.61";
-import { formatTime } from "./math.js?v=1.8.61";
+import { CONFIG } from "./config.js?v=1.8.62";
+import { labelForKeyCode } from "./InputBindings.js?v=1.8.62";
+import { formatTime } from "./math.js?v=1.8.62";
 
 export class UIManager {
   constructor(callbacks) {
@@ -1078,7 +1078,7 @@ function statLine(item) {
 function attributePreview(attribute) {
   if (attribute === "power") return "+3 hero damage per point.";
   if (attribute === "vitality") return "+22 max health per point.";
-  if (attribute === "mobility") return "+7 movement speed per point.";
+  if (attribute === "mobility") return `+${CONFIG.player?.mobilityMoveSpeedPerPoint ?? 18} movement speed per point.`;
   return "Improves this attribute.";
 }
 

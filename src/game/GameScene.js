@@ -1,19 +1,19 @@
 // @ts-check
-import { BaseController } from "./Base.js?v=1.8.61";
-import { AIPlayerController } from "./AIPlayer.js?v=1.8.61";
-import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.61";
-import { CONFIG } from "./config.js?v=1.8.61";
-import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.61";
-import { GameMap } from "./Map.js?v=1.8.61";
-import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.61";
-import { MatchManager } from "./MatchManager.js?v=1.8.61";
-import { Mob } from "./Mob.js?v=1.8.61";
-import { createObjectives } from "./Objective.js?v=1.8.61";
-import { Player } from "./Player.js?v=1.8.61";
-import { RewardSystem } from "./RewardSystem.js?v=1.8.61";
-import { UIManager } from "./UIManager.js?v=1.8.61";
-import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.61";
-import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.61";
+import { BaseController } from "./Base.js?v=1.8.62";
+import { AIPlayerController } from "./AIPlayer.js?v=1.8.62";
+import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.62";
+import { CONFIG } from "./config.js?v=1.8.62";
+import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.62";
+import { GameMap } from "./Map.js?v=1.8.62";
+import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.62";
+import { MatchManager } from "./MatchManager.js?v=1.8.62";
+import { Mob } from "./Mob.js?v=1.8.62";
+import { createObjectives } from "./Objective.js?v=1.8.62";
+import { Player } from "./Player.js?v=1.8.62";
+import { RewardSystem } from "./RewardSystem.js?v=1.8.62";
+import { UIManager } from "./UIManager.js?v=1.8.62";
+import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.62";
+import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.62";
 
 // `healthRatio` is a derived getter on real entities (Entity/Mob/Player/Objective),
 // so assigning to it throws "Cannot set property healthRatio ... which has only a
@@ -156,6 +156,48 @@ export class GameScene {
     this.started = true;
     this.resize();
     requestAnimationFrame((time) => this.loop(time));
+    this.startSimHeartbeat();
+  }
+
+  // Tab-out mitigation. Browsers throttle/pause requestAnimationFrame in a
+  // backgrounded tab, which would freeze the HOST's authoritative simulation for
+  // everyone. A Web Worker timer keeps firing at full rate even when hidden, so
+  // we advance the sim (no rendering) while the tab is in the background. When the
+  // tab is visible, the rAF loop drives and these ticks no-op.
+  // NOTE: match-critical simulation must run on the authoritative host, never on
+  // an individual player's foreground tab — this keeps it alive when backgrounded.
+  startSimHeartbeat() {
+    const hz = CONFIG.multiplayer?.backgroundTickHz || 20;
+    const intervalMs = Math.max(20, Math.round(1000 / hz));
+    const run = () => this.backgroundTick();
+    if (typeof Worker !== "undefined") {
+      try {
+        const blob = new Blob(
+          [`let h=setInterval(()=>postMessage(0),${intervalMs});onmessage=(e)=>{if(e.data==='stop'){clearInterval(h);}};`],
+          { type: "application/javascript" }
+        );
+        this.simWorker = new Worker(URL.createObjectURL(blob));
+        this.simWorker.onmessage = run;
+        return;
+      } catch (error) {
+        // fall through to setInterval
+      }
+    }
+    this.simHeartbeatId = setInterval(run, intervalMs);
+  }
+
+  backgroundTick() {
+    if (this.destroyed || !this.started || typeof document === "undefined" || !document.hidden) {
+      return; // visible -> the rAF loop already drives the sim
+    }
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    const dt = Math.min(0.1, ((now - (this.bgLastTime || now)) / 1000) || 0);
+    this.bgLastTime = now;
+    if (dt <= 0) {
+      return;
+    }
+    // Advance simulation + networking without rendering.
+    this.update(dt);
   }
 
   reset() {
@@ -399,6 +441,8 @@ export class GameScene {
       visibilitychange: () => {
         if (document.hidden) {
           this.clearMovementKeys();
+          // Reset the heartbeat clock so the first background tick uses a small dt.
+          this.bgLastTime = typeof performance !== "undefined" ? performance.now() : Date.now();
         }
       },
       uiPointerDown: (event) => {
@@ -430,6 +474,19 @@ export class GameScene {
   destroy() {
     this.destroyed = true;
     this.started = false;
+    if (this.simWorker) {
+      try {
+        this.simWorker.postMessage("stop");
+        this.simWorker.terminate();
+      } catch (error) {
+        // ignore
+      }
+      this.simWorker = null;
+    }
+    if (this.simHeartbeatId) {
+      clearInterval(this.simHeartbeatId);
+      this.simHeartbeatId = null;
+    }
     this.multiplayer?.subscribe?.(null);
     this.input.keys.clear();
     this.ui.setDrawer(false);
@@ -1126,6 +1183,13 @@ export class GameScene {
     if (this.destroyed) {
       return;
     }
+    if (typeof document !== "undefined" && document.hidden) {
+      // Backgrounded: the sim heartbeat (Worker) advances simulation; skip the
+      // rAF update/draw so we don't double-step. Keep rescheduling for resume.
+      this.lastTime = time;
+      requestAnimationFrame((nextTime) => this.loop(nextTime));
+      return;
+    }
     const dt = Math.min(0.05, (time - this.lastTime) / 1000 || 0);
     this.lastTime = time;
     this.updatePerformanceStats(dt);
@@ -1176,6 +1240,8 @@ export class GameScene {
     this.updateFloatingTexts(dt);
     this.updateBaseEffects(dt);
     this.updateDroppedLoot(dt);
+    this.updateLootPickup(dt);
+    this.drainLevelUps();
 
     if (this.gameOver || this.gameWon) {
       return;
@@ -1243,16 +1309,21 @@ export class GameScene {
     this.updateNeutralTowers(dt);
 
     if (this.isAuthoritativeWorldHost()) {
-      for (const mob of this.mobs) {
-        mob.update(dt, this);
-      }
+      this.updateMobSimulation(dt);
     }
 
     this.base.update(dt, this);
     this.updateBaseDefenders(dt);
 
     for (const objective of this.objectives) {
-      objective.update(dt, this);
+      // Objective combat/capture is host-authoritative; non-hosts display the
+      // synced state (capture progress, ownership, guardian position) instead of
+      // simulating it, so capture can't complete differently on each client.
+      if (this.isAuthoritativeWorldHost()) {
+        objective.update(dt, this);
+      } else {
+        objective.pulse = (objective.pulse || 0) + dt;
+      }
     }
 
     this.updateObjectiveIncome(dt);
@@ -1263,6 +1334,52 @@ export class GameScene {
 
   isAuthoritativeWorldHost() {
     return !this.multiplayer || this.isHost;
+  }
+
+  // Host-only mob simulation with distance-based activation. Mobs near any player
+  // or active AI update every tick; far-away mobs "sleep" and only tick
+  // occasionally, so large maps full of camps stay cheap. Bosses always run full.
+  updateMobSimulation(dt) {
+    const radius = CONFIG.mobs?.activationRadius || 1600;
+    const radiusSq = radius * radius;
+    const sleepInterval = CONFIG.mobs?.sleepUpdateInterval || 0.5;
+    const anchors = [this.player, ...this.remotePlayers.values(), ...(this.aiPlayers || []).map((ai) => ai.player)].filter(
+      (point) => point && point.alive && Number.isFinite(point.x)
+    );
+    let active = 0;
+    let sleeping = 0;
+    for (const mob of this.mobs) {
+      if (!mob.alive) {
+        continue;
+      }
+      let nearestSq = Infinity;
+      for (const anchor of anchors) {
+        const dx = anchor.x - mob.x;
+        const dy = anchor.y - mob.y;
+        const distSq = dx * dx + dy * dy;
+        if (distSq < nearestSq) {
+          nearestSq = distSq;
+        }
+      }
+      if (!mob.isBoss && nearestSq > radiusSq) {
+        mob.sleepTimer = (mob.sleepTimer || 0) + dt;
+        if (mob.sleepTimer >= sleepInterval) {
+          mob.update(mob.sleepTimer, this);
+          mob.sleepTimer = 0;
+        }
+        sleeping += 1;
+        continue;
+      }
+      if (mob.sleepTimer) {
+        mob.update(mob.sleepTimer + dt, this);
+        mob.sleepTimer = 0;
+      } else {
+        mob.update(dt, this);
+      }
+      active += 1;
+    }
+    this.mobActiveCount = active;
+    this.mobSleepCount = sleeping;
   }
 
   updateSpectator(dt) {
@@ -1542,6 +1659,34 @@ export class GameScene {
         matchWon: Boolean(this.match.matchWon)
       },
       openedChests: (this.explorationChests || []).filter((chest) => chest.opened).map((chest) => chest.id),
+      loot: (this.droppedLoot || []).slice(0, CONFIG.loot?.maxSyncedDrops || 60).map((item) => ({
+        id: item.id,
+        x: Math.round(item.x),
+        y: Math.round(item.y),
+        label: item.label,
+        tier: item.tier,
+        slot: item.slot,
+        rarity: item.rarity,
+        rarityLabel: item.rarityLabel,
+        color: item.color,
+        stats: item.stats,
+        description: item.description,
+        value: item.value,
+        radius: item.radius || 15
+      })),
+      objectives: (this.objectives || []).map((objective) => ({
+        id: objective.id,
+        alive: Boolean(objective.alive),
+        captured: Boolean(objective.captured),
+        ownerId: objective.ownerId || null,
+        captureReady: Boolean(objective.captureReady),
+        progress: Math.round((objective.progress || 0) * 100) / 100,
+        captureOwnerId: objective.captureOwnerId || null,
+        health: Math.ceil(objective.health || 0),
+        maxHealth: Math.ceil(objective.maxHealth || 1),
+        guardianX: Math.round(objective.guardianX ?? objective.x),
+        guardianY: Math.round(objective.guardianY ?? objective.y)
+      })),
       mobs: this.mobs
         .filter((mob) => mob.alive && !mob.rewardsGranted)
         .map((mob) => ({ mob, sortKey: mob.isBoss ? -1 : nearestDistSq(mob) }))
@@ -1705,6 +1850,40 @@ export class GameScene {
         chest.opened = true;
       }
     }
+    if (Array.isArray(world.loot)) {
+      // World loot is host-authoritative; mirror it so non-hosts see drops and
+      // can walk over them (pickup goes through a host-validated claim).
+      this.droppedLoot = world.loot.map((item) => ({ ...item, ttl: 999, pulse: 0 }));
+    }
+    if (Array.isArray(world.objectives)) {
+      // Mirror host-authoritative objective/capture state so every client agrees
+      // on guardian health, capture progress, and ownership.
+      const byId = new Map((this.objectives || []).map((objective) => [objective.id, objective]));
+      for (const snap of world.objectives) {
+        const objective = byId.get(snap.id);
+        if (!objective) {
+          continue;
+        }
+        const wasCaptured = objective.captured;
+        objective.alive = snap.alive;
+        objective.captured = Boolean(snap.captured);
+        objective.ownerId = snap.ownerId || null;
+        objective.captureReady = Boolean(snap.captureReady);
+        objective.progress = snap.progress || 0;
+        objective.captureOwnerId = snap.captureOwnerId || null;
+        objective.maxHealth = Math.max(1, snap.maxHealth || objective.maxHealth || 1);
+        objective.health = Math.max(0, Math.min(objective.maxHealth, snap.health ?? objective.health));
+        if (Number.isFinite(snap.guardianX)) {
+          objective.guardianX = snap.guardianX;
+        }
+        if (Number.isFinite(snap.guardianY)) {
+          objective.guardianY = snap.guardianY;
+        }
+        if (!wasCaptured && objective.captured) {
+          this.addFloatingText(objective.x, objective.y - 54, "Captured", "#63d46b");
+        }
+      }
+    }
     const existing = new Map((this.mobs || []).map((mob) => [mob.id, mob]));
     const nextMobs = [];
     for (const snapshot of world.mobs || []) {
@@ -1810,8 +1989,17 @@ export class GameScene {
     return Boolean(this.multiplayer && target?.isRemoteMob);
   }
 
+  isRemoteObjectiveTarget(target) {
+    // Objectives are simulated only on the host; non-hosts route damage to it.
+    return Boolean(this.multiplayer && !this.isAuthoritativeWorldHost() && target && (this.objectives || []).includes(target));
+  }
+
   isRemoteCombatTarget(target) {
-    return Boolean(this.multiplayer && target && (target.isRemotePlayer || target.isRemoteBuilding || target.isRemoteMob || target.isRemoteDeployable));
+    return Boolean(
+      this.multiplayer &&
+        target &&
+        (target.isRemotePlayer || target.isRemoteBuilding || target.isRemoteMob || target.isRemoteDeployable || this.isRemoteObjectiveTarget(target))
+    );
   }
 
   emitRemoteDamageIntent(target, amount, source = {}) {
@@ -1823,7 +2011,8 @@ export class GameScene {
     if (sourceOwnerId !== this.player.id && !hostWorldSource) {
       return false;
     }
-    const targetOwnerId = target.isRemoteMob ? this.getWorldHostPlayerId() : target.isRemotePlayer ? target.id : target.ownerId;
+    const isObjective = this.isRemoteObjectiveTarget(target);
+    const targetOwnerId = target.isRemoteMob || isObjective ? this.getWorldHostPlayerId() : target.isRemotePlayer ? target.id : target.ownerId;
     if (!targetOwnerId || targetOwnerId === this.player.id) {
       return false;
     }
@@ -1831,7 +2020,7 @@ export class GameScene {
       type: "damage",
       targetOwnerId,
       targetId: target.id,
-      targetKind: target.isRemoteMob ? "mob" : target.isRemotePlayer ? "player" : target.isRemoteDeployable ? "deployable" : "building",
+      targetKind: target.isRemoteMob ? "mob" : isObjective ? "objective" : target.isRemotePlayer ? "player" : target.isRemoteDeployable ? "deployable" : "building",
       targetType: target.type || "player",
       amount: Math.max(1, Math.round(amount)),
       sourceKind: source.sourceKind || "player",
@@ -1911,6 +2100,10 @@ export class GameScene {
           continue;
         }
         this.spawnRemoteGhostArea(event);
+      } else if (event.type === "lootClaim") {
+        this.handleLootClaim(event);
+      } else if (event.type === "lootGranted") {
+        this.handleLootGranted(event);
       } else {
         this.applyPvPOutcomeEvent(event);
       }
@@ -1926,6 +2119,8 @@ export class GameScene {
         ? this.player
         : event.targetKind === "mob"
           ? this.mobs.find((mob) => mob.id === event.targetId)
+          : event.targetKind === "objective"
+            ? this.objectives.find((objective) => objective.id === event.targetId)
           : event.targetKind === "deployable"
             ? this.baseDefenders.find((defender) => defender.id === event.targetId && defender.ownerId === this.player.id)
           : this.base.buildings.find((building) => building.id === event.targetId);
@@ -4888,6 +5083,137 @@ export class GameScene {
     return this.droppedLoot.filter((item) => distance(this.player, item) <= CONFIG.loot.pickupRadius);
   }
 
+  // Walk-over auto-pickup. The host owns world loot and collects directly; other
+  // players send a claim and the host grants it (first valid claim wins, so two
+  // players cannot duplicate the same drop).
+  updateLootPickup(dt) {
+    if (!CONFIG.loot.autoPickup || !this.player?.alive) {
+      return;
+    }
+    this.backpackFullMsgTimer = Math.max(0, (this.backpackFullMsgTimer || 0) - dt);
+    const radius = CONFIG.loot.walkOverRadius || 74;
+    const host = this.isAuthoritativeWorldHost();
+    for (const item of [...this.droppedLoot]) {
+      if (distance(this.player, item) > radius + (item.radius || 12)) {
+        continue;
+      }
+      if (this.player.carriedLootFull) {
+        this.notifyBackpackFull();
+        continue;
+      }
+      if (host) {
+        this.collectLootLocally(item.id);
+      } else {
+        this.requestLootClaim(item.id);
+      }
+    }
+  }
+
+  notifyBackpackFull() {
+    if ((this.backpackFullMsgTimer || 0) > 0) {
+      return;
+    }
+    this.backpackFullMsgTimer = CONFIG.loot.backpackFullMessageCooldown || 2.5;
+    this.addToast(`Backpack full (${this.player.carriedLootCount}/${this.player.carryLimit}). Store loot at your core to free space.`);
+    this.addFloatingText(this.player.x, this.player.y - 40, "Backpack full", "#e85b58");
+  }
+
+  lootPayload(item) {
+    return {
+      id: item.id,
+      label: item.label,
+      tier: item.tier,
+      slot: item.slot,
+      rarity: item.rarity,
+      rarityLabel: item.rarityLabel,
+      color: item.color,
+      stats: item.stats,
+      description: item.description,
+      value: item.value
+    };
+  }
+
+  collectLootLocally(id) {
+    const index = this.droppedLoot.findIndex((item) => item.id === id);
+    if (index < 0) {
+      return false;
+    }
+    const item = this.droppedLoot[index];
+    const result = this.player.addLoot(this.lootPayload(item));
+    if (!result.ok) {
+      this.notifyBackpackFull();
+      return false;
+    }
+    this.droppedLoot.splice(index, 1);
+    this.addFloatingText(this.player.x, this.player.y - 36, `+ ${item.label || "Loot"}`, item.color || "#f0c85d");
+    return true;
+  }
+
+  requestLootClaim(id) {
+    if (!this.multiplayer?.queueCombatEvent) {
+      return;
+    }
+    this.pendingLootClaims = this.pendingLootClaims || new Map();
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    if (now - (this.pendingLootClaims.get(id) || 0) < 1200) {
+      return; // already requested recently; wait for the host's grant
+    }
+    this.pendingLootClaims.set(id, now);
+    this.multiplayer.queueCombatEvent({ type: "lootClaim", lootId: id });
+  }
+
+  // Host side: validate a remote player's loot claim, remove the world drop
+  // (which dedups it), and tell that player they may take it.
+  handleLootClaim(event) {
+    if (!this.isAuthoritativeWorldHost() || !event.lootId || !event.sourcePlayerId) {
+      return;
+    }
+    const index = this.droppedLoot.findIndex((item) => item.id === event.lootId);
+    if (index < 0) {
+      return; // already claimed by someone else
+    }
+    const item = this.droppedLoot[index];
+    const claimer = this.remotePlayers.get(event.sourcePlayerId);
+    if (!claimer || distance(claimer, item) > (CONFIG.loot.pickupRadius || 210) + 40) {
+      return;
+    }
+    this.droppedLoot.splice(index, 1);
+    this.multiplayer.queueCombatEvent({ type: "lootGranted", to: event.sourcePlayerId, lootId: event.lootId });
+  }
+
+  // Claimer side: the host approved the claim; add the drop we already see locally.
+  handleLootGranted(event) {
+    if (event.to !== this.player.id || !event.lootId) {
+      return;
+    }
+    this.pendingLootClaims?.delete(event.lootId);
+    const index = this.droppedLoot.findIndex((item) => item.id === event.lootId);
+    if (index < 0) {
+      return;
+    }
+    const item = this.droppedLoot[index];
+    const result = this.player.addLoot(this.lootPayload(item));
+    if (result.ok) {
+      this.droppedLoot.splice(index, 1);
+      this.addFloatingText(this.player.x, this.player.y - 36, `+ ${item.label || "Loot"}`, item.color || "#f0c85d");
+    } else {
+      this.notifyBackpackFull();
+    }
+  }
+
+  // Show a level-up notification when the player banks one or more levels.
+  drainLevelUps() {
+    const pending = this.player?.pendingLevelUps || 0;
+    if (pending <= 0) {
+      return;
+    }
+    this.player.pendingLevelUps = 0;
+    const ap = (CONFIG.player.apPerLevel ?? 1) * pending;
+    const attr = (CONFIG.player.attributePointsPerLevel ?? 2) * pending;
+    this.addToast(`Level ${this.player.level}! +${ap} AP, +${attr} attribute point${attr === 1 ? "" : "s"}.`);
+    this.addFloatingText(this.player.x, this.player.y - 52, "LEVEL UP", "#f0c85d");
+  }
+
   pickupLoot(id) {
     const index = this.droppedLoot.findIndex((item) => item.id === id && distance(this.player, item) <= CONFIG.loot.pickupRadius + 20);
     if (index < 0) {
@@ -6683,29 +7009,50 @@ export class GameScene {
       return;
     }
     const stats = this.performanceStats || {};
+    const player = this.player || {};
     const lines = [
       `FPS ${stats.fps || 0}`,
-      `Entities ${(stats.mobs || 0) + (stats.ai || 0) + (stats.projectiles || 0) + (stats.towers || 0) + (this.baseDefenders?.length || 0)}`,
-      `Mobs ${stats.mobs || 0} / Camps ${stats.camps || 0} / Bosses ${stats.bosses || 0}`,
-      `AI ${stats.ai || 0} / Projectiles ${stats.projectiles || 0} / Towers ${stats.towers || 0}`,
-      `Effects ${stats.effects || 0} / UI ${stats.uiHz || 10}hz`,
+      `Mobs ${stats.mobs || 0} (active ${this.mobActiveCount || 0} / sleep ${this.mobSleepCount || 0})`,
+      `Camps ${stats.camps || 0} / Bosses ${stats.bosses || 0} / AI ${stats.ai || 0}`,
+      `Projectiles ${stats.projectiles || 0} / Towers ${stats.towers || 0} / FX ${stats.effects || 0}`,
       `Map ${CONFIG.world.width}x${CONFIG.world.height}`
     ];
+    if (this.multiplayer) {
+      const room = this.multiplayer.lastRoom || {};
+      const offset = Math.round(this.multiplayer.serverClockOffset || 0);
+      lines.push(
+        "— MULTIPLAYER —",
+        `Role ${this.isAuthoritativeWorldHost() ? "HOST" : "client"} / players ${room.players?.length || 1}`,
+        `Host ${(this.worldHostId || "?").toString().slice(-6)} / clockΔ ${offset}ms`,
+        `Phase ${this.match?.currentPhase?.label || "?"} ${Math.ceil(this.match?.timeRemaining || 0)}s`,
+        `Remotes ${this.remotePlayers?.size || 0} / world drops ${this.droppedLoot?.length || 0}`
+      );
+    }
+    lines.push(
+      "— PROGRESSION —",
+      `Lvl ${player.level || 1} XP ${Math.floor(player.xp || 0)}/${player.xpToNext || 0}`,
+      `AP ${player.skillPoints || 0} / Attr ${player.attributePoints || 0} (P${player.attributes?.power || 0} V${player.attributes?.vitality || 0} M${player.attributes?.mobility || 0})`,
+      `Speed ${Math.round(player.effectiveSpeed || 0)} / Bag ${player.carriedLootCount || 0}/${player.carryLimit || 0}`,
+      `Pos ${Math.round(player.x || 0)},${Math.round(player.y || 0)}`
+    );
     ctx.save();
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     const x = 12;
     const y = 82;
-    ctx.fillStyle = "rgba(11, 16, 12, 0.86)";
-    roundRect(ctx, x, y, 250, 142, 8);
+    const height = 34 + lines.length * 16;
+    ctx.fillStyle = "rgba(11, 16, 12, 0.88)";
+    roundRect(ctx, x, y, 268, height, 8);
     ctx.fill();
     ctx.strokeStyle = "rgba(114,216,232,0.28)";
     ctx.stroke();
     ctx.fillStyle = "#72d8e8";
     ctx.font = "900 12px system-ui, sans-serif";
-    ctx.fillText("PERFORMANCE F9", x + 12, y + 20);
-    ctx.fillStyle = "#fff8e8";
+    ctx.fillText("DEBUG F9", x + 12, y + 20);
     ctx.font = "800 12px system-ui, sans-serif";
-    lines.forEach((line, index) => ctx.fillText(line, x + 12, y + 42 + index * 16));
+    lines.forEach((line, index) => {
+      ctx.fillStyle = line.startsWith("—") ? "#72d8e8" : "#fff8e8";
+      ctx.fillText(line, x + 12, y + 42 + index * 16);
+    });
     ctx.restore();
   }
 }

@@ -63,7 +63,14 @@ export const CONFIG = Object.freeze({
     respawnPerLevelSeconds: 1.65,
     respawnPhaseSeconds: 2,
     respawnMaxSeconds: 60,
-    xpBase: 100
+    xpBase: 100,
+    // Per-level XP = xpBase * xpGrowth^(level-1). Higher growth = harder leveling.
+    xpGrowth: 1.3,
+    // Progression rewards granted on each level-up.
+    apPerLevel: 1,
+    attributePointsPerLevel: 2,
+    healthPerLevel: 18,
+    moveSpeedPerLevel: 1
   },
   phases: [
     {
@@ -151,6 +158,10 @@ export const CONFIG = Object.freeze({
   mobs: {
     baseSpawnInterval: 18,
     campMax: 3,
+    // Host-side performance: mobs farther than this from any player/AI "sleep"
+    // and only simulate every sleepUpdateInterval seconds (bosses always run).
+    activationRadius: 1600,
+    sleepUpdateInterval: 0.5,
     chaseRadius: 480,
     attackRange: 32,
     attackCooldown: 1.15,
@@ -200,6 +211,11 @@ export const CONFIG = Object.freeze({
     maxSyncedDeployables: 18,
     playerSyncIntervalMs: 125,
     pollIntervalMs: 650,
+    // Web Worker heartbeat rate that keeps the host sim running when its tab is
+    // backgrounded (rAF is throttled/paused while hidden).
+    backgroundTickHz: 20,
+    // Max combat/loot events flushed to the relay per sync.
+    maxEventsPerSync: 24,
     maxEventsPerSync: 24,
     // How often the host streams the world (mobs/boss) to other players. Lower
     // cadence + client-side interpolation keeps movement smooth without flooding
@@ -435,6 +451,13 @@ export const CONFIG = Object.freeze({
   },
   loot: {
     carryLimit: 10,
+    // Walk-over auto-pickup: collect loot within this radius automatically.
+    autoPickup: true,
+    walkOverRadius: 74,
+    // Throttle the "Backpack full" toast so it does not spam every frame.
+    backpackFullMessageCooldown: 2.5,
+    // How many world drops the host streams to other players.
+    maxSyncedDrops: 60,
     baseStorageLimit: 80,
     dropDespawnSeconds: 70,
     deathDropDespawnSeconds: 180,

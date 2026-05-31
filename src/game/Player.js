@@ -1,9 +1,9 @@
 // @ts-check
-import { AbilityBook } from "./Ability.js?v=1.8.61";
-import { getCharacterClass } from "./CharacterClasses.js?v=1.8.61";
-import { CONFIG } from "./config.js?v=1.8.61";
-import { Entity } from "./Entity.js?v=1.8.61";
-import { clamp, normalize } from "./math.js?v=1.8.61";
+import { AbilityBook } from "./Ability.js?v=1.8.62";
+import { getCharacterClass } from "./CharacterClasses.js?v=1.8.62";
+import { CONFIG } from "./config.js?v=1.8.62";
+import { Entity } from "./Entity.js?v=1.8.62";
+import { clamp, normalize } from "./math.js?v=1.8.62";
 
 export class Player extends Entity {
   constructor(x, y, characterId = "ranger") {
@@ -224,12 +224,15 @@ export class Player extends Entity {
     while (this.xp >= this.xpToNext) {
       this.xp -= this.xpToNext;
       this.level += 1;
-      this.xpToNext = Math.round(CONFIG.player.xpBase * Math.pow(1.18, this.level - 1));
-      this.maxHealth += 18;
+      // Steeper, configurable curve so levels feel earned (each grants points).
+      this.xpToNext = Math.round((CONFIG.player.xpBase || 120) * Math.pow(CONFIG.player.xpGrowth || 1.3, this.level - 1));
+      this.maxHealth += CONFIG.player.healthPerLevel ?? 18;
       this.health = this.effectiveMaxHealth;
-      this.speed += 1;
-      this.skillPoints += this.level % 5 === 0 ? 1 : 0;
-      this.attributePoints += 2;
+      this.speed += CONFIG.player.moveSpeedPerLevel ?? 1;
+      // Every level grants ability + attribute points.
+      this.skillPoints += CONFIG.player.apPerLevel ?? 1;
+      this.attributePoints += CONFIG.player.attributePointsPerLevel ?? 2;
+      this.pendingLevelUps = (this.pendingLevelUps || 0) + 1;
     }
   }
 

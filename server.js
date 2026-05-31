@@ -196,7 +196,7 @@ function appendRoomEvents(room, events = [], player = {}) {
 
 function sanitizeCombatEvent(rawEvent = {}, player = {}) {
   const type = String(rawEvent.type || "");
-  if (!["damage", "projectile", "area", "chestOpened", "mobDefeated", "playerDefeated", "playerEliminated", "coreDestroyed"].includes(type)) {
+  if (!["damage", "projectile", "area", "chestOpened", "mobDefeated", "playerDefeated", "playerEliminated", "coreDestroyed", "lootClaim", "lootGranted"].includes(type)) {
     return null;
   }
   const id = String(rawEvent.id || `${player.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
@@ -249,6 +249,17 @@ function sanitizeCombatEvent(rawEvent = {}, player = {}) {
       color: String(rawEvent.color || "#b391f0").slice(0, 16),
       duration: Math.max(0, Math.min(30, Number(rawEvent.duration || 1))),
       effectType: String(rawEvent.effectType || "").slice(0, 24)
+    };
+  }
+  if (type === "lootClaim" || type === "lootGranted") {
+    const lootId = String(rawEvent.lootId || "").slice(0, 80);
+    if (!lootId) {
+      return null;
+    }
+    return {
+      ...base,
+      lootId,
+      to: String(rawEvent.to || "").slice(0, 80)
     };
   }
   if (type === "damage") {

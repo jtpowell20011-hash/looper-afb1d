@@ -1,7 +1,7 @@
 // @ts-check
-import { CHARACTER_CLASS_IDS, getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.61";
-import { CONFIG } from "./config.js?v=1.8.61";
-import { MultiplayerRoomClient } from "./MultiplayerRoomClient.js?v=1.8.61";
+import { CHARACTER_CLASS_IDS, getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.62";
+import { CONFIG } from "./config.js?v=1.8.62";
+import { MultiplayerRoomClient } from "./MultiplayerRoomClient.js?v=1.8.62";
 
 const DEFAULT_WORLD_OPTIONS = Object.freeze({
   bosses: true,

@@ -1,5 +1,5 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.61";
+import { CONFIG } from "./config.js?v=1.8.62";
 
 const ROOM_PREFIX = "basebound.room.";
 const ROOM_TTL_MS = 1000 * 60 * 45;
