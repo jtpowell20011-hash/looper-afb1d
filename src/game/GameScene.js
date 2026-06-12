@@ -1,19 +1,19 @@
 // @ts-check
-import { BaseController } from "./Base.js?v=1.8.62";
-import { AIPlayerController } from "./AIPlayer.js?v=1.8.62";
-import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.62";
-import { CONFIG } from "./config.js?v=1.8.62";
-import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.62";
-import { GameMap } from "./Map.js?v=1.8.62";
-import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.62";
-import { MatchManager } from "./MatchManager.js?v=1.8.62";
-import { Mob } from "./Mob.js?v=1.8.62";
-import { createObjectives } from "./Objective.js?v=1.8.62";
-import { Player } from "./Player.js?v=1.8.62";
-import { RewardSystem } from "./RewardSystem.js?v=1.8.62";
-import { UIManager } from "./UIManager.js?v=1.8.62";
-import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.62";
-import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.62";
+import { BaseController } from "./Base.js?v=1.8.63";
+import { AIPlayerController } from "./AIPlayer.js?v=1.8.63";
+import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.63";
+import { CONFIG } from "./config.js?v=1.8.63";
+import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.63";
+import { GameMap } from "./Map.js?v=1.8.63";
+import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.63";
+import { MatchManager } from "./MatchManager.js?v=1.8.63";
+import { Mob } from "./Mob.js?v=1.8.63";
+import { createObjectives } from "./Objective.js?v=1.8.63";
+import { Player } from "./Player.js?v=1.8.63";
+import { RewardSystem } from "./RewardSystem.js?v=1.8.63";
+import { UIManager } from "./UIManager.js?v=1.8.63";
+import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.63";
+import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.63";
 
 // `healthRatio` is a derived getter on real entities (Entity/Mob/Player/Objective),
 // so assigning to it throws "Cannot set property healthRatio ... which has only a

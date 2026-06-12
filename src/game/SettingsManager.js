@@ -1,5 +1,5 @@
 // @ts-check
-import { DEFAULT_KEYBINDINGS, KEYBINDING_GROUPS, labelForKeyCode, normalizeKeybindings } from "./InputBindings.js?v=1.8.62";
+import { DEFAULT_KEYBINDINGS, KEYBINDING_GROUPS, labelForKeyCode, normalizeKeybindings } from "./InputBindings.js?v=1.8.63";
 
 const STORAGE_KEY = "basebound.keybindings.v2";
 

@@ -54,7 +54,7 @@ export const CONFIG = Object.freeze({
     acceleration: 2050,
     friction: 9.5,
     statTuning: {
-      moveSpeedMultiplier: 1.07,
+      moveSpeedMultiplier: 1.1,
       healthMultiplier: 1.65
     },
     baseRegenDelay: 20,
@@ -76,7 +76,7 @@ export const CONFIG = Object.freeze({
     {
       id: "exploration",
       label: "Exploration",
-      duration: 600,
+      duration: 900,
       canPlaceBase: true,
       description: "Scout terrain, farm early camps, and claim an opening base site."
     },
