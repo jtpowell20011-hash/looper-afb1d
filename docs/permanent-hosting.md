@@ -1,64 +1,74 @@
-# Permanent Hosting For Basebound
+# Permanent Hosting For Looper
 
-The local `http://192.168...` link is only a temporary LAN preview. A public playtest needs an HTTPS host.
+The local `http://192.168...` link is only a temporary LAN preview. A permanent iPhone-testable app needs an HTTPS host connected to the project repository.
 
-## Important Multiplayer Note
+## Recommended Setup
 
-Multiplayer is currently paused in the main menu while the solo AI enemy-player loop is being tested. Keep this document for the next multiplayer pass.
+Use this stack for the PWA phase:
 
-Basebound's room codes use a small API in `server.js`. Static hosts can serve the game, but they cannot keep the in-memory room server running.
+- GitHub repository for source control and update history.
+- Netlify connected to that repository for continuous deployment.
+- A stable Netlify URL first, then an optional custom domain later.
 
-- Use a Node web service for public two-player room testing.
-- Use static Netlify hosting only for solo mode or same-browser local-tab room testing.
+This gives Looper a permanent HTTPS URL, deploy logs, rollback history, preview deploys for branches, and automatic production updates whenever the main branch changes.
 
-## Recommended Prototype Host
+## Current Production Setup
 
-Use Render, Railway, Fly.io, or another Node-capable host.
+- Live site: `https://zippy-elf-91ab66.netlify.app`
+- Netlify project: `zippy-elf-91ab66`
+- Netlify-connected GitHub repo: `jtpowell20011-hash/looper-afb1d`
+- Original template/source repo: `jtpowell20011-hash/looper`
 
-Build command:
+This local folder now tracks the Netlify-connected repo as `origin`, so a normal push to `main` updates the live site.
+
+## Netlify Settings
+
+This repo includes `netlify.toml`, so Netlify should pick up:
+
+- Build command: `npm run build:pwa`
+- Publish directory: `dist`
+- Node version: `20`
+
+If Netlify asks manually, use those same values.
+
+## First-Time Deployment
+
+1. Create or choose a GitHub repo for Looper.
+2. Push this project to that repo.
+3. In Netlify, choose **Add new project**.
+4. Choose **Import an existing project**.
+5. Connect the GitHub repo.
+6. Confirm the build command is `npm run build:pwa`.
+7. Confirm the publish directory is `dist`.
+8. Deploy.
+9. Optionally rename the generated site to something stable, such as `looper-audio` if available.
+
+The app URL will look like:
 
 ```text
-npm run build:pwa
+https://looper-audio.netlify.app
 ```
 
-Start command:
+## Update Flow
 
-```text
-node server.js
-```
+After the site is connected:
 
-Environment variables:
+1. Make code changes locally.
+2. Run `npm test`.
+3. Run `npm run build:pwa`.
+4. Push the changes to GitHub.
+5. Netlify automatically builds and deploys the latest version.
 
-```text
-STATIC_DIR=dist
-HOST=0.0.0.0
-PUBLIC_URL=https://your-public-basebound-url
-```
+For user testing, send the production URL. For iPhone home-screen testing, open the HTTPS URL in Safari and choose **Share > Add to Home Screen**.
 
-`PUBLIC_URL` is optional on hosts that correctly send forwarded host headers, but it is useful for custom domains, tunnels, or any host where copied invite links should use a specific public URL.
+## Monitoring
 
-This repo includes `render.yaml`, so Render can import it as a Blueprint.
+Use Netlify's project dashboard to monitor:
 
-## Invite Links
+- Latest production deploy.
+- Failed deploy logs.
+- Previous deploys and rollbacks.
+- Branch preview deploys.
+- Basic traffic analytics if enabled.
 
-When the game is running on the hosted Node service, the host can create a room and copy an invite link from the room panel.
-
-The link format is:
-
-```text
-https://your-public-basebound-url/?room=ABCDE
-```
-
-Guests who open that link from anywhere will be placed into the room join flow automatically.
-
-## LAN Testing
-
-For another device on the same Wi-Fi:
-
-1. Run `scripts/start-multiplayer-server.ps1`.
-2. Use the printed LAN IP URL, such as `http://192.168.1.25:4174/`.
-3. Allow Node through Windows Firewall if prompted.
-
-If Windows does not prompt, run `scripts/allow-firewall.ps1` from an elevated PowerShell session.
-
-Do not use `127.0.0.1` from the second device. On that device, `127.0.0.1` means itself, not the host computer.
+For deeper monitoring later, add an uptime monitor such as Better Stack, UptimeRobot, or a GitHub Actions scheduled check against the production URL.

@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $dist = Join-Path $projectRoot "dist"
-$zip = Join-Path $projectRoot "basebound-pwa.zip"
+$zip = Join-Path $projectRoot "looper-pwa.zip"
 
 if (Test-Path $dist) {
   $resolvedProject = (Resolve-Path $projectRoot).Path
@@ -21,8 +21,9 @@ Copy-Item -LiteralPath (Join-Path $projectRoot "index.html") -Destination $dist
 Copy-Item -LiteralPath (Join-Path $projectRoot "styles.css") -Destination $dist
 Copy-Item -LiteralPath (Join-Path $projectRoot "manifest.webmanifest") -Destination $dist
 Copy-Item -LiteralPath (Join-Path $projectRoot "sw.js") -Destination $dist
-Copy-Item -LiteralPath (Join-Path $projectRoot "src\main.js") -Destination (Join-Path $dist "src")
-Copy-Item -LiteralPath (Join-Path $projectRoot "src\game") -Destination (Join-Path $dist "src") -Recurse
+Copy-Item -LiteralPath (Join-Path $projectRoot "src\app.js") -Destination (Join-Path $dist "src")
+Copy-Item -LiteralPath (Join-Path $projectRoot "src\domain.js") -Destination (Join-Path $dist "src")
+Copy-Item -LiteralPath (Join-Path $projectRoot "assets\poster-wave.svg") -Destination (Join-Path $dist "assets")
 Copy-Item -LiteralPath (Join-Path $projectRoot "assets\app-icon.svg") -Destination (Join-Path $dist "assets")
 
 @'

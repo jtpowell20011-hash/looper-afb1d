@@ -1,38 +1,22 @@
 "use strict";
 
-const CACHE_NAME = "basebound-v1.8.43";
+const CACHE_NAME = "looper-v0.7.0";
 const APP_SHELL = [
   "/",
+  "/?v=0.7.0",
   "/index.html",
-  "/assets/vendor/three.r128.min.js?v=1.8.43",
-  "/styles.css?v=1.8.43",
-  "/src/main.js?v=1.8.43",
-  "/src/game/AIPlayer.js?v=1.8.43",
-  "/src/game/Ability.js?v=1.8.43",
-  "/src/game/Base.js?v=1.8.43",
-  "/src/game/CharacterClasses.js?v=1.8.43",
-  "/src/game/config.js?v=1.8.43",
-  "/src/game/Entity.js?v=1.8.43",
-  "/src/game/FutureMultiplayerInterfaces.js?v=1.8.43",
-  "/src/game/GameScene.js?v=1.8.43",
-  "/src/game/InputBindings.js?v=1.8.43",
-  "/src/game/LowPolyRenderer.js?v=1.8.43",
-  "/src/game/MainMenu.js?v=1.8.43",
-  "/src/game/Map.js?v=1.8.43",
-  "/src/game/MatchManager.js?v=1.8.43",
-  "/src/game/math.js?v=1.8.43",
-  "/src/game/MultiplayerRoomClient.js?v=1.8.43",
-  "/src/game/Mob.js?v=1.8.43",
-  "/src/game/Objective.js?v=1.8.43",
-  "/src/game/Player.js?v=1.8.43",
-  "/src/game/RewardSystem.js?v=1.8.43",
-  "/src/game/SettingsManager.js?v=1.8.43",
-  "/src/game/UIManager.js?v=1.8.43",
+  "/styles.css?v=0.7.0",
+  "/src/app.js?v=0.7.0",
+  "/src/domain.js?v=0.7.0",
+  "/assets/poster-wave.svg",
+  "/assets/app-icon.svg",
   "/manifest.webmanifest"
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)).then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener("activate", (event) => {
@@ -49,25 +33,6 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  const requestUrl = new URL(event.request.url);
-  if (requestUrl.pathname.startsWith("/api/")) {
-    event.respondWith(fetch(event.request));
-    return;
-  }
-
-  if (event.request.mode === "navigate") {
-    event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-          return response;
-        })
-        .catch(() => caches.match(event.request).then((cached) => cached || caches.match("/index.html")))
-    );
-    return;
-  }
-
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) {
@@ -81,15 +46,3 @@ self.addEventListener("fetch", (event) => {
     })
   );
 });
-
-
-
-
-
-
-
-
-
-
-
-
