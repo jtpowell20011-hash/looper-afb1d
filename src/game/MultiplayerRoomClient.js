@@ -1,5 +1,5 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.63";
+import { CONFIG } from "./config.js?v=1.8.64";
 
 const ROOM_PREFIX = "basebound.room.";
 const ROOM_TTL_MS = 1000 * 60 * 45;
@@ -83,11 +83,18 @@ export class MultiplayerRoomClient {
       this.roomCode,
       this.playerPayload(this.isHost),
       (room) => {
+        this.lastSseAt = Date.now();
         this.lastRoom = room;
         this.isHost = room.hostId === this.playerId;
         this.roomUpdateHandler?.(room);
       }
     );
+  }
+
+  // When the SSE stream is healthy it is the single state channel; state POSTs
+  // then request a lean ack instead of pulling the full room back every send.
+  isSseHealthy() {
+    return Boolean(this.lastSseAt && Date.now() - this.lastSseAt < 2500);
   }
 
   async getRoom() {
@@ -136,12 +143,18 @@ export class MultiplayerRoomClient {
     this.pollTimer = this.pollTimer <= 0 ? (CONFIG.multiplayer?.pollIntervalMs || 650) / 1000 : this.pollTimer;
     this.busy = true;
     const state = shouldSend || queuedEvents.length > 0 ? scene.snapshotForMultiplayer() : null;
+    const lean = Boolean(state && this.isSseHealthy() && this.transport.isRemote);
     const task = state
-      ? this.transport.updatePlayerState(this.roomCode, this.playerPayload(this.isHost), state, queuedEvents)
+      ? this.transport.updatePlayerState(this.roomCode, this.playerPayload(this.isHost), state, queuedEvents, lean)
       : this.transport.getRoom(this.roomCode, this.playerPayload(this.isHost));
 
     task
       .then((room) => {
+        if (!room || !Array.isArray(room.players)) {
+          // Lean ack: SSE delivers the room state; just track the server clock.
+          this.noteServerTime(room);
+          return;
+        }
         this.lastRoom = room;
         this.applyRoomToScene(scene, room);
       })
@@ -228,10 +241,10 @@ class HttpRoomTransport {
     });
   }
 
-  async updatePlayerState(code, player, state, events = []) {
+  async updatePlayerState(code, player, state, events = [], lean = false) {
     return requestJson(`/api/rooms/${encodeURIComponent(code)}/state`, {
       method: "POST",
-      body: { player, state, events }
+      body: { player, state, events, lean }
     });
   }
 
@@ -478,6 +491,7 @@ function sanitizeLocalSettings(settings = {}) {
   const worldSeed = String(settings.worldSeed || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 32) || makeWorldSeed();
   return {
     mapSize,
+    mode: settings.mode === "coop" ? "coop" : "versus",
     worldSeed,
     worldOptions: {
       bosses: worldOptions.bosses !== false,

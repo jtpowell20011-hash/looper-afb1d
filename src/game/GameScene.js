@@ -1,19 +1,19 @@
 // @ts-check
-import { BaseController } from "./Base.js?v=1.8.63";
-import { AIPlayerController } from "./AIPlayer.js?v=1.8.63";
-import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.63";
-import { CONFIG } from "./config.js?v=1.8.63";
-import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.63";
-import { GameMap } from "./Map.js?v=1.8.63";
-import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.63";
-import { MatchManager } from "./MatchManager.js?v=1.8.63";
-import { Mob } from "./Mob.js?v=1.8.63";
-import { createObjectives } from "./Objective.js?v=1.8.63";
-import { Player } from "./Player.js?v=1.8.63";
-import { RewardSystem } from "./RewardSystem.js?v=1.8.63";
-import { UIManager } from "./UIManager.js?v=1.8.63";
-import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.63";
-import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.63";
+import { BaseController } from "./Base.js?v=1.8.64";
+import { AIPlayerController } from "./AIPlayer.js?v=1.8.64";
+import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.64";
+import { CONFIG } from "./config.js?v=1.8.64";
+import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.64";
+import { GameMap } from "./Map.js?v=1.8.64";
+import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.64";
+import { MatchManager } from "./MatchManager.js?v=1.8.64";
+import { Mob } from "./Mob.js?v=1.8.64";
+import { createObjectives } from "./Objective.js?v=1.8.64";
+import { Player } from "./Player.js?v=1.8.64";
+import { RewardSystem } from "./RewardSystem.js?v=1.8.64";
+import { UIManager } from "./UIManager.js?v=1.8.64";
+import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.64";
+import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.64";
 
 // `healthRatio` is a derived getter on real entities (Entity/Mob/Player/Objective),
 // so assigning to it throws "Cannot set property healthRatio ... which has only a
@@ -78,6 +78,8 @@ export class GameScene {
     this.isHost = Boolean(options.isHost);
     this.playerName = options.playerName || "Basebound Scout";
     this.roomCode = options.roomCode || null;
+    // "coop": all human players are one team — no PvP damage, no base raiding.
+    this.roomMode = options.roomMode === "coop" ? "coop" : "versus";
     this.worldSeed = options.worldSeed || null;
     this.onLeaveMatch = typeof options.onLeaveMatch === "function" ? options.onLeaveMatch : null;
     // Server-clock timestamp at which all clients begin the match together (0 = no sync gate).
@@ -1067,6 +1069,10 @@ export class GameScene {
     if (!target?.alive || target === this.player || this.isEntityStealthed(target)) {
       return false;
     }
+    // Co-op: teammates and their bases/deployables are never valid targets.
+    if (this.isCoop() && (target.isRemotePlayer || target.isRemoteBuilding || target.isRemoteDeployable)) {
+      return false;
+    }
     if ((target.type === "wall" || target.type) && target.ownerId === this.player.id) {
       return false;
     }
@@ -1336,6 +1342,12 @@ export class GameScene {
     return !this.multiplayer || this.isHost;
   }
 
+  // Co-op Survival: every human player is on one team. No PvP damage, no base
+  // raiding — the match is players vs the Wildlands (mobs, camps, objectives).
+  isCoop() {
+    return this.roomMode === "coop" && Boolean(this.multiplayer);
+  }
+
   // Host-only mob simulation with distance-based activation. Mobs near any player
   // or active AI update every tick; far-away mobs "sleep" and only tick
   // occasionally, so large maps full of camps stay cheap. Bosses always run full.
@@ -1464,41 +1476,105 @@ export class GameScene {
     return true;
   }
 
-  // Non-host clients receive mob positions at the world cadence; ease toward
-  // them each frame (and derive facing) so mobs/bosses move smoothly.
-  interpolateRemoteMobs(dt) {
-    const k = Math.min(1, dt * 12);
-    for (const mob of this.mobs) {
-      if (!mob.alive || !Number.isFinite(mob.targetX) || !Number.isFinite(mob.targetY)) {
-        continue;
-      }
-      const dx = mob.targetX - mob.x;
-      const dy = mob.targetY - mob.y;
-      mob.vx = dx;
-      mob.vy = dy;
-      mob.x += dx * k;
-      mob.y += dy * k;
+  // --- Snapshot-buffer interpolation (Valve-style) -------------------------
+  // Remote entities render slightly in the past and lerp between buffered,
+  // timestamped snapshots. Network jitter is absorbed by the buffer, producing
+  // constant-velocity motion instead of the move-stop-move rubber-banding that
+  // "chase the latest point" easing causes at 8Hz update rates.
+  pushNetSample(entity, x, y) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return;
+    }
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    entity.netBuffer = entity.netBuffer || [];
+    const last = entity.netBuffer[entity.netBuffer.length - 1];
+    // Teleport-sized jump (spawn/respawn/blink): restart the buffer and snap.
+    if (last && Math.hypot(x - last.x, y - last.y) > 700) {
+      entity.netBuffer.length = 0;
+      entity.x = x;
+      entity.y = y;
+    }
+    entity.netBuffer.push({ t: now, x, y });
+    if (entity.netBuffer.length > 12) {
+      entity.netBuffer.shift();
     }
   }
 
-  // Smoothly ease each remote proxy toward its last networked position so
-  // movement reads cleanly between the ~8Hz network updates instead of teleporting.
-  interpolateRemotePlayers(dt) {
-    const k = Math.min(1, dt * 18);
-    for (const remote of this.remotePlayers.values()) {
-      if (!Number.isFinite(remote.targetX) || !Number.isFinite(remote.targetY)) {
+  // Advance the entity toward its buffered position at (now - delayMs). Returns
+  // true when a sample was applied. Facing derives from the movement delta.
+  sampleNetBuffer(entity, delayMs) {
+    const buffer = entity.netBuffer;
+    if (!buffer || buffer.length === 0) {
+      return false;
+    }
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    const renderTime = now - delayMs;
+    let next = null;
+    let prev = null;
+    for (let index = 0; index < buffer.length; index += 1) {
+      if (buffer[index].t >= renderTime) {
+        next = buffer[index];
+        prev = buffer[index - 1] || null;
+        break;
+      }
+    }
+    let targetX;
+    let targetY;
+    if (next && prev) {
+      const span = Math.max(1, next.t - prev.t);
+      const alpha = Math.min(1, Math.max(0, (renderTime - prev.t) / span));
+      targetX = prev.x + (next.x - prev.x) * alpha;
+      targetY = prev.y + (next.y - prev.y) * alpha;
+    } else if (next) {
+      targetX = next.x;
+      targetY = next.y;
+    } else {
+      // Buffer starved (no snapshot newer than render time): hold at newest.
+      const newest = buffer[buffer.length - 1];
+      targetX = newest.x;
+      targetY = newest.y;
+      if (buffer.length > 4) {
+        buffer.splice(0, buffer.length - 4);
+      }
+    }
+    const dx = targetX - entity.x;
+    const dy = targetY - entity.y;
+    if (dx * dx + dy * dy > 1) {
+      const facing = normalize(dx, dy);
+      if (Math.abs(facing.x) + Math.abs(facing.y) > 0.001) {
+        entity.facing = facing;
+      }
+    }
+    entity.x = targetX;
+    entity.y = targetY;
+    return true;
+  }
+
+  interpolateRemoteMobs() {
+    const delay = CONFIG.multiplayer?.mobInterpDelayMs ?? 500;
+    for (const mob of this.mobs) {
+      if (!mob.alive || !mob.isRemoteMob) {
         continue;
       }
-      const dx = remote.targetX - remote.x;
-      const dy = remote.targetY - remote.y;
-      if (dx * dx + dy * dy > 1) {
-        const facing = normalize(dx, dy);
-        if (Math.abs(facing.x) + Math.abs(facing.y) > 0.001) {
-          remote.facing = facing;
-        }
+      const beforeX = mob.x;
+      const beforeY = mob.y;
+      if (this.sampleNetBuffer(mob, delay)) {
+        // Renderer faces mobs via vx/vy.
+        mob.vx = mob.x - beforeX;
+        mob.vy = mob.y - beforeY;
       }
-      remote.x += dx * k;
-      remote.y += dy * k;
+    }
+  }
+
+  interpolateRemotePlayers() {
+    const delay = CONFIG.multiplayer?.playerInterpDelayMs ?? 240;
+    for (const remote of this.remotePlayers.values()) {
+      this.sampleNetBuffer(remote, delay);
+    }
+    for (const defender of this.baseDefenders || []) {
+      if (defender.alive && defender.isRemoteDeployable) {
+        this.sampleNetBuffer(defender, delay);
+      }
     }
   }
 
@@ -1764,13 +1840,12 @@ export class GameScene {
         proxy.facing = { x: snap.fx || 0, y: snap.fy ?? 1 };
       }
       if (Number.isFinite(snap.x) && Number.isFinite(snap.y)) {
-        // Snap on first sight or a teleport-sized jump (respawn), else interpolate.
-        if (!Number.isFinite(proxy.targetX) || Math.hypot(snap.x - proxy.x, snap.y - proxy.y) > 700) {
+        if (!proxy.netBuffer?.length) {
+          // First sight: place immediately instead of gliding in from (0,0).
           proxy.x = snap.x;
           proxy.y = snap.y;
         }
-        proxy.targetX = snap.x;
-        proxy.targetY = snap.y;
+        this.pushNetSample(proxy, snap.x, snap.y);
       }
       if (remote.state?.base?.buildings) {
         const remoteBuildings = remote.state.base.buildings.map((building) => ({
@@ -1909,14 +1984,12 @@ export class GameScene {
       mob.remoteOwnerId = this.worldHostId || hostId;
       const snapX = Number.isFinite(snapshot.x) ? snapshot.x : mob.x;
       const snapY = Number.isFinite(snapshot.y) ? snapshot.y : mob.y;
-      // Interpolate toward the host's position instead of teleporting. Snap only
-      // for brand-new mobs or teleport-sized jumps (spawns/respawns).
-      if (!Number.isFinite(mob.targetX) || Math.hypot(snapX - mob.x, snapY - mob.y) > 700) {
+      if (!mob.netBuffer?.length) {
+        // Brand-new mob: place immediately; afterwards buffered interpolation drives it.
         mob.x = snapX;
         mob.y = snapY;
       }
-      mob.targetX = snapX;
-      mob.targetY = snapY;
+      this.pushNetSample(mob, snapX, snapY);
       mob.spawnX = Number.isFinite(snapshot.spawnX) ? snapshot.spawnX : mob.spawnX;
       mob.spawnY = Number.isFinite(snapshot.spawnY) ? snapshot.spawnY : mob.spawnY;
       mob.tier = snapshot.tier || mob.tier || 1;
@@ -1956,8 +2029,13 @@ export class GameScene {
     deployable.ownerName = ownerName;
     deployable.isRemoteDeployable = true;
     deployable.alive = snapshot.health !== 0;
-    deployable.x = Number.isFinite(snapshot.x) ? snapshot.x : deployable.x;
-    deployable.y = Number.isFinite(snapshot.y) ? snapshot.y : deployable.y;
+    if (Number.isFinite(snapshot.x) && Number.isFinite(snapshot.y)) {
+      if (!deployable.netBuffer?.length) {
+        deployable.x = snapshot.x;
+        deployable.y = snapshot.y;
+      }
+      this.pushNetSample(deployable, snapshot.x, snapshot.y);
+    }
     deployable.radius = snapshot.radius || deployable.radius || 14;
     deployable.range = snapshot.range || deployable.range || 120;
     deployable.maxHealth = Math.max(1, snapshot.maxHealth || deployable.maxHealth || 1);
@@ -2004,6 +2082,13 @@ export class GameScene {
 
   emitRemoteDamageIntent(target, amount, source = {}) {
     if (!CONFIG.combat?.pvp?.enabled || !CONFIG.combat?.pvp?.remoteDamageEvents || !this.multiplayer?.queueCombatEvent) {
+      return false;
+    }
+    // Co-op backstop: players never relay damage against teammates or their
+    // property. World hostiles (mobs/objectives/towers relayed by the host)
+    // still hurt everyone, and mob/objective damage still relays to the host.
+    const hostileWorldSource = ["mob", "hostile", "objective", "neutralTower"].includes(source.sourceKind);
+    if (this.isCoop() && !hostileWorldSource && (target.isRemotePlayer || target.isRemoteBuilding || target.isRemoteDeployable)) {
       return false;
     }
     const sourceOwnerId = source.sourceOwnerId || source.sourceId || this.player.id;
@@ -2112,6 +2197,11 @@ export class GameScene {
 
   applyIncomingPvPDamage(event) {
     if (event.targetOwnerId !== this.player.id) {
+      return;
+    }
+    // Co-op: refuse player-vs-player/building/deployable damage even if a stale
+    // or misbehaving client relays it. Mob/objective damage (PvE) passes through.
+    if (this.isCoop() && ["player", "building", "deployable"].includes(event.targetKind) && event.sourceKind !== "mob" && event.sourceKind !== "hostile" && event.sourceKind !== "objective" && event.sourceKind !== "neutralTower") {
       return;
     }
     const target =
@@ -2233,6 +2323,11 @@ export class GameScene {
     if (!this.multiplayer || this.gameOver || this.gameWon) {
       return;
     }
+    if (this.isCoop()) {
+      // Co-op has no rival elimination; the team wins by surviving every phase
+      // (match_complete) — teammates leaving must not trigger a victory.
+      return;
+    }
     const activeRivals = Array.from(this.remotePlayers.values()).filter(
       (remote) => !remote.eliminated && !remote.spectating && (remote.alive || (remote.respawnTimer || 0) > 0)
     );
@@ -2282,6 +2377,15 @@ export class GameScene {
 
   canTargetEntity(target, sourceKind = "mob") {
     if (!target?.alive) {
+      return false;
+    }
+    // Co-op: player-sourced attacks (projectiles, areas, melee) never connect
+    // with teammates or their property. Mobs/towers still target everyone.
+    if (
+      this.isCoop() &&
+      (sourceKind === "player" || sourceKind === "remotePlayer") &&
+      (target.isRemotePlayer || target.isRemoteBuilding || target.isRemoteDeployable)
+    ) {
       return false;
     }
     if (!this.isEntityStealthed(target)) {

@@ -1285,25 +1285,49 @@ h2 {
   font-weight: 850;
 }
 
+/* The room panel lives IN FLOW inside a per-screen lobby slot (it is reparented
+   by MainMenu when a room is active). It must never overlay other menu content. */
 .room-panel {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
   align-items: start;
+  background: rgba(6, 10, 8, 0.55);
+  border-color: rgba(114, 216, 232, 0.22);
 }
 
-.menu-frame > .room-panel {
-  position: absolute;
-  left: 32px;
-  right: 32px;
-  bottom: 58px;
-  z-index: 7;
-  max-height: min(260px, calc(100% - 120px));
-  overflow: auto;
-  backdrop-filter: blur(10px);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.36);
-}
-
-.menu-frame > .room-panel[hidden] {
+.room-panel[hidden] {
   display: none;
+}
+
+.room-panel > button {
+  width: 100%;
+}
+
+.lobby-slot {
+  display: none;
+  min-width: 0;
+}
+
+.lobby-slot.has-lobby {
+  display: block;
+}
+
+/* Character screen becomes a 3-column lobby (cards | overview | room rail)
+   when the lobby rail is docked. Class is toggled by MainMenu. */
+.character-select-panel.has-lobby-rail {
+  grid-template-columns: minmax(190px, 0.68fr) minmax(300px, 1.12fr) minmax(230px, 0.78fr);
+}
+
+.mode-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mode-toggle-grid button.is-active {
+  border-color: rgba(114, 216, 232, 0.65);
+  background: rgba(114, 216, 232, 0.14);
+  color: #d9f6fb;
 }
 
 .invite-panel {
@@ -1461,6 +1485,7 @@ h2 {
   .network-panel,
   .invite-panel,
   .character-select-panel,
+  .character-select-panel.has-lobby-rail,
   .mode-select-panel,
   .character-notes,
   .character-stat-bars,

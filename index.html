@@ -9,7 +9,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Basebound</title>
     <link rel="manifest" href="manifest.webmanifest">
-    <link rel="stylesheet" href="styles.css?v=1.8.63">
+    <link rel="stylesheet" href="styles.css?v=1.8.64">
   </head>
   <body>
     <main class="game-shell" aria-label="Basebound prototype">
@@ -378,7 +378,7 @@
               <button id="menuHowToPlayButton" type="button">How to Play</button>
               <button id="menuSettingsButton" type="button">Settings</button>
             </nav>
-            <span class="menu-version">Prototype v1.8.63</span>
+            <span class="menu-version">Prototype v1.8.64</span>
           </section>
 
           <section id="menuScreenMode" class="menu-screen" data-menu-screen="mode" hidden>
@@ -471,6 +471,14 @@
                   <span>Online Room Tools</span>
                   <strong>Up to 8 players</strong>
                 </div>
+                <div class="panel-row">
+                  <span>Game Mode</span>
+                  <strong id="roomModeText">Versus</strong>
+                </div>
+                <div class="mode-toggle-grid">
+                  <button id="roomModeVersusButton" type="button" class="is-active">Versus</button>
+                  <button id="roomModeCoopButton" type="button">Co-op Survival</button>
+                </div>
                 <div class="room-tool-grid">
                   <button id="createRoomButton" type="button">Create Online Room</button>
                   <label class="menu-field">
@@ -480,6 +488,8 @@
                   <button id="joinRoomButton" type="button">Join Room</button>
                 </div>
               </section>
+
+              <div id="setupLobbySlot" class="lobby-slot setup-panel-wide"></div>
             </div>
             <div class="menu-footer-actions">
               <button id="setupContinueButton" class="menu-primary-action" type="button">Choose Your Hero</button>
@@ -523,6 +533,7 @@
                 </div>
                 <div id="characterAbilityList" class="character-ability-list"></div>
               </aside>
+              <aside id="characterLobbySlot" class="lobby-slot"></aside>
             </section>
             <div class="menu-footer-actions">
               <button id="characterReadyButton" class="menu-primary-action" type="button">Ready Up</button>
@@ -550,6 +561,7 @@
                 </div>
                 <div id="readySettingList" class="ready-setting-list"></div>
               </section>
+              <div id="readyLobbySlot" class="lobby-slot"></div>
             </div>
             <section id="matchSetupPanel" class="match-setup-panel">
               <div>
@@ -631,8 +643,8 @@
       </section>
     </main>
 
-    <script src="assets/vendor/three.r128.min.js?v=1.8.63"></script>
-    <script type="module" src="src/main.js?v=1.8.63"></script>
+    <script src="assets/vendor/three.r128.min.js?v=1.8.64"></script>
+    <script type="module" src="src/main.js?v=1.8.64"></script>
   </body>
 </html>
 

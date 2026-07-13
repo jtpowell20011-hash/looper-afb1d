@@ -216,11 +216,15 @@ export const CONFIG = Object.freeze({
     backgroundTickHz: 20,
     // Max combat/loot events flushed to the relay per sync.
     maxEventsPerSync: 24,
-    maxEventsPerSync: 24,
-    // How often the host streams the world (mobs/boss) to other players. Lower
-    // cadence + client-side interpolation keeps movement smooth without flooding
-    // the relay (which also starved player-position updates).
-    worldSyncIntervalMs: 425,
+    // Snapshot-buffer interpolation: remote entities render this many ms in the
+    // past and lerp between buffered snapshots, absorbing network jitter into
+    // constant-velocity motion. Player delay ~2x the send interval; mob delay
+    // ~1.7x the world cadence so two samples are always buffered.
+    playerInterpDelayMs: 240,
+    mobInterpDelayMs: 500,
+    // How often the host streams the world (mobs/boss) to other players. The
+    // relay coalesces broadcasts, so this single-sender payload is cheap.
+    worldSyncIntervalMs: 300,
     // Only stream mobs within this range of any player so far-field mobs do not
     // bloat the snapshot. Tuned a bit beyond a screen so they ease in cleanly.
     syncMobRadius: 1550,

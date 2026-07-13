@@ -101,7 +101,9 @@ function publicRoom(room) {
     transport: "server",
     maxPlayers: MAX_PLAYERS,
     settings: sanitizeRoomSettings(cleaned.settings),
-    events: cleaned.events || [],
+    // Clients dedupe events by id; resending only the recent tail keeps
+    // broadcast payloads small.
+    events: (cleaned.events || []).slice(-40),
     createdAt: cleaned.createdAt,
     updatedAt: cleaned.updatedAt,
     startedAt: cleaned.startedAt,
@@ -137,6 +139,32 @@ function broadcastRoom(room) {
     sendRoomEvent(res, room);
   }
 }
+
+// High-frequency state updates (every player posts ~8Hz) must NOT each trigger a
+// full-room broadcast to every stream — that is O(players^2) full payloads per
+// second and floods the relay, delaying everyone's snapshots. Instead, state
+// posts mark the room dirty and a single coalescing loop broadcasts at a fixed
+// cadence. Lobby-critical routes (join/ready/start/leave) still broadcast
+// immediately for snappy lobby UX.
+const BROADCAST_INTERVAL_MS = Math.max(50, Number(process.env.BROADCAST_INTERVAL_MS || 100));
+const dirtyRooms = new Set();
+
+function markRoomDirty(room) {
+  dirtyRooms.add(room.code);
+}
+
+setInterval(() => {
+  if (dirtyRooms.size === 0) {
+    return;
+  }
+  for (const code of dirtyRooms) {
+    const room = rooms.get(code);
+    if (room && roomStreams.has(code)) {
+      broadcastRoom(room);
+    }
+  }
+  dirtyRooms.clear();
+}, BROADCAST_INTERVAL_MS).unref?.();
 
 function broadcastRoomRemoved(code) {
   const streams = roomStreams.get(code);
@@ -366,6 +394,7 @@ function sanitizeRoomSettings(settings = {}) {
   const seed = String(settings.worldSeed || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 32);
   return {
     mapSize: mapSizes.has(settings.mapSize) ? settings.mapSize : "large",
+    mode: settings.mode === "coop" ? "coop" : "versus",
     worldSeed: seed || makeWorldSeed(),
     worldOptions: {
       bosses: worldOptions.bosses !== false,
@@ -520,7 +549,13 @@ async function handleRoomApi(req, reqUrl, res) {
       const body = await readJson(req);
       upsertPlayer(room, body.player, body.state || null);
       appendRoomEvents(room, body.events, body.player);
-      broadcastRoom(room);
+      markRoomDirty(room);
+      // Lean mode: the client has a healthy SSE stream (its state channel), so
+      // the upload only needs a tiny ack instead of the full room payload.
+      if (body.lean) {
+        sendJson(res, 200, { ok: true, code: room.code, serverNow: Date.now() });
+        return true;
+      }
       sendJson(res, 200, publicRoom(room));
       return true;
     }

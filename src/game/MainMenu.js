@@ -1,7 +1,7 @@
 // @ts-check
-import { CHARACTER_CLASS_IDS, getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.63";
-import { CONFIG } from "./config.js?v=1.8.63";
-import { MultiplayerRoomClient } from "./MultiplayerRoomClient.js?v=1.8.63";
+import { CHARACTER_CLASS_IDS, getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.64";
+import { CONFIG } from "./config.js?v=1.8.64";
+import { MultiplayerRoomClient } from "./MultiplayerRoomClient.js?v=1.8.64";
 
 const DEFAULT_WORLD_OPTIONS = Object.freeze({
   bosses: true,
@@ -72,6 +72,7 @@ export class MainMenu {
     this.selectedMode = "solo";
     this.selectedCharacterId = "ranger";
     this.selectedMapSize = CONFIG.world.mapSize || "large";
+    this.selectedRoomMode = "versus";
     this.worldOptions = { ...DEFAULT_WORLD_OPTIONS };
     this.pendingWorldSeed = makeWorldSeed();
     this.pendingAIClassAssignments = [];
@@ -124,6 +125,12 @@ export class MainMenu {
       createButton: byId("createRoomButton"),
       joinButton: byId("joinRoomButton"),
       roomCodeInput: byId("roomCodeInput"),
+      roomModeText: byId("roomModeText"),
+      roomModeVersusButton: byId("roomModeVersusButton"),
+      roomModeCoopButton: byId("roomModeCoopButton"),
+      setupLobbySlot: byId("setupLobbySlot"),
+      characterLobbySlot: byId("characterLobbySlot"),
+      readyLobbySlot: byId("readyLobbySlot"),
       soloButton: byId("soloButton"),
       startButton: byId("startRoomButton"),
       readyButton: byId("readyButton"),
@@ -232,6 +239,8 @@ export class MainMenu {
     }
     this.els.createButton.addEventListener("click", () => this.createRoom());
     this.els.joinButton.addEventListener("click", () => this.joinRoom());
+    this.els.roomModeVersusButton?.addEventListener("click", () => this.setRoomMode("versus"));
+    this.els.roomModeCoopButton?.addEventListener("click", () => this.setRoomMode("coop"));
     this.els.startButton.addEventListener("click", () => this.startRoom());
     this.els.readyButton?.addEventListener("click", () => this.toggleReady());
     this.els.soloButton.addEventListener("click", () => this.startSolo());
@@ -259,6 +268,7 @@ export class MainMenu {
     };
     this.els.breadcrumb.hidden = screen === "main";
     this.els.screenName.textContent = labels[screen] || "Menu";
+    this.dockRoomPanel(screen);
     if (screen === "main") {
       this.galleryMode = false;
       this.setStatus("Choose a mode to enter the Wildlands.");
@@ -272,6 +282,49 @@ export class MainMenu {
     } else if (screen === "howToPlay") {
       this.setStatus("Review the core loop, controls, and objectives.");
     }
+  }
+
+  // The room panel is a single element docked IN FLOW into the active screen's
+  // lobby slot (never an overlay), so the lobby is always visible next to the
+  // content instead of covering it.
+  dockRoomPanel(screen = this.activeScreen) {
+    this.activeScreen = screen || this.activeScreen || "main";
+    const panel = this.els.roomPanel;
+    if (!panel) {
+      return;
+    }
+    const slots = {
+      setup: this.els.setupLobbySlot,
+      character: this.els.characterLobbySlot,
+      ready: this.els.readyLobbySlot
+    };
+    const slot = slots[this.activeScreen] || this.els.setupLobbySlot;
+    if (slot && panel.parentElement !== slot) {
+      slot.appendChild(panel);
+    }
+    const visible = Boolean(this.room) && !panel.hidden;
+    for (const candidate of Object.values(slots)) {
+      candidate?.classList.toggle("has-lobby", visible && candidate === slot);
+    }
+    document.querySelector(".character-select-panel")?.classList.toggle(
+      "has-lobby-rail",
+      visible && this.activeScreen === "character" && !this.galleryMode
+    );
+  }
+
+  setRoomMode(mode) {
+    this.selectedRoomMode = mode === "coop" ? "coop" : "versus";
+    const isCoop = this.selectedRoomMode === "coop";
+    this.els.roomModeVersusButton?.classList.toggle("is-active", !isCoop);
+    this.els.roomModeCoopButton?.classList.toggle("is-active", isCoop);
+    if (this.els.roomModeText) {
+      this.els.roomModeText.textContent = isCoop ? "Co-op Survival" : "Versus";
+    }
+    this.setStatus(
+      isCoop
+        ? "Co-op Survival: everyone on one team against the Wildlands. No PvP damage."
+        : "Versus: free-for-all — fight players, raid bases, control objectives."
+    );
   }
 
   showCharacterScreen(galleryMode) {
@@ -657,12 +710,14 @@ export class MainMenu {
       worldOptions: room.settings?.worldOptions || this.worldOptions,
       worldSeed: room.settings?.worldSeed || this.pendingWorldSeed,
       isHost: this.roomClient.isHost,
-      startAt: room.startAt || 0
+      startAt: room.startAt || 0,
+      roomMode: room.settings?.mode === "coop" ? "coop" : "versus"
     });
   }
 
   renderIdle() {
     this.els.roomPanel.hidden = true;
+    this.dockRoomPanel();
     this.els.inviteUrlText.textContent = "Create a room to generate a link.";
     this.els.copyInviteButton.disabled = true;
     this.setStatus("Choose a mode to enter the Wildlands.");
@@ -789,7 +844,15 @@ export class MainMenu {
     const nonHostPlayers = room.players.filter((player) => player.id !== room.hostId);
     const everyoneReady = nonHostPlayers.length > 0 && nonHostPlayers.every((player) => player.ready);
     const soloRoom = room.players.length < 2;
-    this.els.roomStatusText.textContent = room.status === "started" ? "Starting" : `Lobby ${room.players.length}/${maxPlayers}`;
+    const roomMode = room.settings?.mode === "coop" ? "coop" : "versus";
+    if (roomMode !== this.selectedRoomMode) {
+      // Guests adopt the host's mode so everyone's lobby shows the same thing.
+      this.setRoomMode(roomMode);
+    }
+    this.els.roomStatusText.textContent =
+      room.status === "started"
+        ? "Starting"
+        : `${roomMode === "coop" ? "Co-op" : "Versus"} lobby ${room.players.length}/${maxPlayers}`;
     this.els.inviteUrlText.textContent = this.roomClient?.isRemote
       ? this.getInviteUrl(room.code)
       : "Local-tab room only. Use the Node server or a public deployment for shareable links.";
@@ -811,6 +874,7 @@ export class MainMenu {
       })
       .join("");
     this.renderReadyButton();
+    this.dockRoomPanel();
   }
 
   async loadNetworkInfo() {
@@ -908,6 +972,7 @@ export class MainMenu {
     }
     return {
       mapSize: this.selectedMapSize,
+      mode: this.selectedRoomMode,
       worldSeed: this.room?.settings?.worldSeed || this.pendingWorldSeed,
       worldOptions: { ...this.worldOptions },
       maxPlayers: 8
