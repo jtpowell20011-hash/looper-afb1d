@@ -1,7 +1,7 @@
 // @ts-check
-import { CONFIG } from "./config.js?v=1.8.64";
-import { Entity } from "./Entity.js?v=1.8.64";
-import { distance, randRange } from "./math.js?v=1.8.64";
+import { CONFIG } from "./config.js?v=1.8.65";
+import { Entity } from "./Entity.js?v=1.8.65";
+import { distance, randRange } from "./math.js?v=1.8.65";
 
 const BUILDING_RADIUS = {
   core: 34,

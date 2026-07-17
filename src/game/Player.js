@@ -1,9 +1,9 @@
 // @ts-check
-import { AbilityBook } from "./Ability.js?v=1.8.64";
-import { getCharacterClass } from "./CharacterClasses.js?v=1.8.64";
-import { CONFIG } from "./config.js?v=1.8.64";
-import { Entity } from "./Entity.js?v=1.8.64";
-import { clamp, normalize } from "./math.js?v=1.8.64";
+import { AbilityBook } from "./Ability.js?v=1.8.65";
+import { getCharacterClass } from "./CharacterClasses.js?v=1.8.65";
+import { CONFIG } from "./config.js?v=1.8.65";
+import { Entity } from "./Entity.js?v=1.8.65";
+import { clamp, normalize } from "./math.js?v=1.8.65";
 
 export class Player extends Entity {
   constructor(x, y, characterId = "ranger") {

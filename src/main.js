@@ -11,9 +11,9 @@ async function bootBasebound() {
     }
 
     const [{ GameScene }, { MainMenu }, { SettingsManager }] = await Promise.all([
-      import("./game/GameScene.js?v=1.8.64"),
-      import("./game/MainMenu.js?v=1.8.64"),
-      import("./game/SettingsManager.js?v=1.8.64")
+      import("./game/GameScene.js?v=1.8.65"),
+      import("./game/MainMenu.js?v=1.8.65"),
+      import("./game/SettingsManager.js?v=1.8.65")
     ]);
 
     let activeGame = null;

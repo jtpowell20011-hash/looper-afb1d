@@ -1,19 +1,19 @@
 // @ts-check
-import { BaseController } from "./Base.js?v=1.8.64";
-import { AIPlayerController } from "./AIPlayer.js?v=1.8.64";
-import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.64";
-import { CONFIG } from "./config.js?v=1.8.64";
-import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.64";
-import { GameMap } from "./Map.js?v=1.8.64";
-import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.64";
-import { MatchManager } from "./MatchManager.js?v=1.8.64";
-import { Mob } from "./Mob.js?v=1.8.64";
-import { createObjectives } from "./Objective.js?v=1.8.64";
-import { Player } from "./Player.js?v=1.8.64";
-import { RewardSystem } from "./RewardSystem.js?v=1.8.64";
-import { UIManager } from "./UIManager.js?v=1.8.64";
-import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.64";
-import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.64";
+import { BaseController } from "./Base.js?v=1.8.65";
+import { AIPlayerController } from "./AIPlayer.js?v=1.8.65";
+import { getCharacterClass, randomCharacterClassId } from "./CharacterClasses.js?v=1.8.65";
+import { CONFIG } from "./config.js?v=1.8.65";
+import { FutureMultiplayerContracts } from "./FutureMultiplayerInterfaces.js?v=1.8.65";
+import { GameMap } from "./Map.js?v=1.8.65";
+import { LowPolyRenderer } from "./LowPolyRenderer.js?v=1.8.65";
+import { MatchManager } from "./MatchManager.js?v=1.8.65";
+import { Mob } from "./Mob.js?v=1.8.65";
+import { createObjectives } from "./Objective.js?v=1.8.65";
+import { Player } from "./Player.js?v=1.8.65";
+import { RewardSystem } from "./RewardSystem.js?v=1.8.65";
+import { UIManager } from "./UIManager.js?v=1.8.65";
+import { DEFAULT_KEYBINDINGS } from "./InputBindings.js?v=1.8.65";
+import { clamp, circleIntersects, distance, distanceSq, formatTime, normalize, randRange } from "./math.js?v=1.8.65";
 
 // `healthRatio` is a derived getter on real entities (Entity/Mob/Player/Objective),
 // so assigning to it throws "Cannot set property healthRatio ... which has only a
@@ -4041,9 +4041,22 @@ export class GameScene {
     objective.progress = 0;
     objective.captureReady = true;
     objective.captureOwnerId = null;
-    const owner = this.getRewardPlayerForSource(source) || this.player;
-    const rewardText = this.rewardSystem.grantObjectiveGuardianReward(owner, objective);
-    const ownerName = owner === this.player ? "you" : owner.displayName || "AI";
+    const remoteKillerId = source.sourceOwnerId || source.sourceId;
+    const remoteKiller = remoteKillerId && remoteKillerId !== this.player.id ? this.remotePlayers.get(remoteKillerId) : null;
+    let rewardText;
+    let ownerName;
+    if (remoteKiller) {
+      // A remote player landed the kill: relay the reward to their client
+      // instead of the host pocketing it via the || this.player fallback.
+      const reward = this.probeRewardAmounts((probe) => this.rewardSystem.grantObjectiveGuardianReward(probe, objective));
+      this.emitObjectiveReward(objective, remoteKiller.id, reward, `${objective.label} guardian`);
+      rewardText = reward.text;
+      ownerName = remoteKiller.displayName || remoteKiller.name || "an ally";
+    } else {
+      const owner = this.getRewardPlayerForSource(source) || this.player;
+      rewardText = this.rewardSystem.grantObjectiveGuardianReward(owner, objective);
+      ownerName = owner === this.player ? "you" : owner.displayName || "AI";
+    }
     this.addToast(`${objective.label} guardian defeated by ${ownerName}. The capture zone is active: ${rewardText}.`);
     this.addFloatingText(objective.x, objective.y - 64, "Guardian down", "#e7bd58");
     this.addFloatingText(objective.x, objective.y - 92, "Capture now", "#63d46b");
@@ -4104,6 +4117,11 @@ export class GameScene {
     if (this.gameOver || this.gameWon) {
       return;
     }
+    if (this.isCoop()) {
+      // Objectives are a shared team goal in co-op; controlling them all is
+      // not a solo victory/elimination condition.
+      return;
+    }
     const capturableObjectives = this.objectives.filter((objective) => objective.type !== "boss");
     if (capturableObjectives.length === 0 || capturableObjectives.some((objective) => !objective.captured || !objective.ownerId)) {
       return;
@@ -4114,6 +4132,11 @@ export class GameScene {
     }
     if (ownerId === this.player.id) {
       this.win("You controlled every map objective.");
+      return;
+    }
+    const remote = this.remotePlayers.get(ownerId);
+    if (remote) {
+      this.eliminate(`${remote.displayName || remote.name || "A rival player"} controlled every map objective.`);
       return;
     }
     const ai = this.getAIById(ownerId);
@@ -4338,17 +4361,49 @@ export class GameScene {
 
   onObjectiveCaptured(objective, owner = this.player) {
     objective.claim?.(owner);
-    const rewardText = this.rewardSystem.grantObjectiveReward(owner, objective);
-    if (objective.type === "relic") {
-      const ai = this.getAIByPlayer(owner);
-      if (ai) {
-        ai.base.applyRelicBuff(60);
-      } else {
-        this.base.applyRelicBuff(60);
+    let rewardText;
+    if (owner.isRemotePlayer) {
+      // Remote capturer: relay the reward to their client; never apply the
+      // relic buff to the host's base on their behalf.
+      const reward = this.probeRewardAmounts((probe) => this.rewardSystem.grantObjectiveReward(probe, objective));
+      this.emitObjectiveReward(objective, owner.id, reward, objective.label);
+      rewardText = reward.text;
+    } else {
+      rewardText = this.rewardSystem.grantObjectiveReward(owner, objective);
+      if (objective.type === "relic") {
+        const ai = this.getAIByPlayer(owner);
+        if (ai) {
+          ai.base.applyRelicBuff(60);
+        } else {
+          this.base.applyRelicBuff(60);
+        }
       }
     }
-    this.addToast(`${objective.label} captured by ${owner === this.player ? "you" : owner.displayName || "AI"}: ${rewardText}. A guard tower is online.`);
+    const ownerName = owner === this.player ? "you" : owner.displayName || owner.name || "AI";
+    this.addToast(`${objective.label} captured by ${ownerName}: ${rewardText}. A guard tower is online.`);
     this.addFloatingText(objective.x, objective.y - 54, "Captured", "#63d46b");
+  }
+
+  // Relay an objective reward to a remote player's client via the existing
+  // mobDefeated reward event (it carries xp/gold/resource amounts + a label).
+  emitObjectiveReward(objective, killerId, reward, label) {
+    if (!this.multiplayer?.queueCombatEvent || !killerId) {
+      return;
+    }
+    this.multiplayer.queueCombatEvent({
+      type: "mobDefeated",
+      targetOwnerId: this.player.id,
+      targetId: objective.id,
+      killerId,
+      killerName: this.remotePlayers.get(killerId)?.displayName || this.remotePlayers.get(killerId)?.name || "Player",
+      mobTier: objective.scaleLevel || 3,
+      mobLevel: objective.scaleLevel || 3,
+      mobName: label,
+      bossBuff: false,
+      rewardXP: reward.xp || 0,
+      rewardGold: reward.gold || 0,
+      rewardResources: reward.resources || 0
+    });
   }
 
   isAIPlayerEntity(entity) {
@@ -4807,7 +4862,22 @@ export class GameScene {
         contestants.push({ player: ai.player, distance: distance(objective, ai.player) });
       }
     }
+    // Remote players capture too — without this, only the host could ever
+    // capture an objective in multiplayer.
+    for (const remote of this.remotePlayers.values()) {
+      if (remote.alive && distance(objective, remote) <= captureRadius + (remote.radius || 18)) {
+        contestants.push({ player: remote, distance: distance(objective, remote) });
+      }
+    }
     return contestants.sort((a, b) => a.distance - b.distance);
+  }
+
+  // Compute reward amounts without mutating anyone: run the reward function
+  // against a probe, then relay the amounts to the remote player's client.
+  probeRewardAmounts(grantFn) {
+    const probe = { currency: 0, resources: 0, wards: 0, xpGained: 0, addXP(amount) { this.xpGained += amount; } };
+    const text = grantFn(probe);
+    return { xp: probe.xpGained, gold: probe.currency, resources: probe.resources, text };
   }
 
   getObjectiveAttackTarget(objective) {
@@ -4819,6 +4889,12 @@ export class GameScene {
     for (const ai of this.aiPlayers || []) {
       if (this.canTargetEntity(ai.player, "objective") && objective.ownerId !== ai.id && objective.ownerId !== ai.player.id && inThreatArea(ai.player)) {
         candidates.push(ai.player);
+      }
+    }
+    // Guardians must also fight back against remote players in the arena.
+    for (const remote of this.remotePlayers.values()) {
+      if (this.canTargetEntity(remote, "objective") && objective.ownerId !== remote.id && inThreatArea(remote)) {
+        candidates.push(remote);
       }
     }
     candidates.sort((a, b) => distanceSq(objective.guardianPoint, a) - distanceSq(objective.guardianPoint, b));
